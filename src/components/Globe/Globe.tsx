@@ -5,6 +5,8 @@ import { FlightLayer } from '../../layers/FlightLayer';
 import { SatelliteLayer } from '../../layers/SatelliteLayer';
 import { EarthquakeLayer } from '../../layers/EarthquakeLayer';
 import { CameraLayer } from '../../layers/CameraLayer';
+import { HistoricalTrackLayer } from '../../layers/HistoricalTrackLayer';
+import { WeatherLayer } from '../../layers/WeatherLayer';
 import { fragmentShader as flirShader } from '../../filters/flir';
 import { fragmentShader as nightvisionShader } from '../../filters/nightvision';
 import { fragmentShader as crtShader } from '../../filters/crt';
@@ -18,8 +20,18 @@ export function Globe() {
     satellites: SatelliteLayer | null;
     earthquakes: EarthquakeLayer | null;
     cameras: CameraLayer | null;
-  }>({ flights: null, satellites: null, earthquakes: null, cameras: null });
+    historicalTrack: HistoricalTrackLayer | null;
+    weather: WeatherLayer | null;
+  }>({
+    flights: null,
+    satellites: null,
+    earthquakes: null,
+    cameras: null,
+    historicalTrack: null,
+    weather: null,
+  });
   const filterStageRef = useRef<Cesium.PostProcessStage | null>(null);
+  const measureEntitiesRef = useRef<Cesium.Entity[]>([]);
 
   const {
     layers,
@@ -27,6 +39,20 @@ export function Globe() {
     setCameraPosition,
     setSelectedEntity,
     setDataTimestamp,
+    activeTrack,
+    activeHistoricalFlight,
+    flyToTarget,
+    setFlyToTarget,
+    resolvedIcao24,
+    setEntityCount,
+    trailsEnabled,
+    measureMode,
+    addMeasurePoint,
+    measurePoints,
+    measureResult,
+    screenshotRequested,
+    clearScreenshotRequest,
+    addNotification,
   } = useAppStore();
 
   const handleEntityClick = useCallback(
@@ -34,6 +60,23 @@ export function Globe() {
       const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 
       handler.setInputAction((movement: { position: Cesium.Cartesian2 }) => {
+        // Handle measurement mode
+        const currentMeasureMode = useAppStore.getState().measureMode;
+        if (currentMeasureMode) {
+          const ray = viewer.camera.getPickRay(movement.position);
+          if (ray) {
+            const cartesian = viewer.scene.globe?.pick(ray, viewer.scene);
+            if (cartesian) {
+              const carto = Cesium.Cartographic.fromCartesian(cartesian);
+              useAppStore.getState().addMeasurePoint({
+                lat: Cesium.Math.toDegrees(carto.latitude),
+                lon: Cesium.Math.toDegrees(carto.longitude),
+              });
+            }
+          }
+          return;
+        }
+
         // Check entity pick first
         const picked = viewer.scene.pick(movement.position);
 
@@ -148,6 +191,11 @@ export function Globe() {
       selectionIndicator: false,
       requestRenderMode: true,
       maximumRenderTimeChange: Infinity,
+      contextOptions: {
+        webgl: {
+          preserveDrawingBuffer: true,
+        },
+      },
     });
 
     // Set dark sky
@@ -182,10 +230,31 @@ export function Globe() {
     const handler = handleEntityClick(viewer);
 
     // Initialize layers
-    layersRef.current.flights = new FlightLayer(viewer);
-    layersRef.current.satellites = new SatelliteLayer(viewer);
-    layersRef.current.earthquakes = new EarthquakeLayer(viewer);
-    layersRef.current.cameras = new CameraLayer(viewer);
+    const flightLayer = new FlightLayer(viewer);
+    flightLayer.setOnCountUpdate((count) => setEntityCount('flights', count));
+
+    const satLayer = new SatelliteLayer(viewer);
+    satLayer.setOnCountUpdate((count) => setEntityCount('satellites', count));
+
+    const quakeLayer = new EarthquakeLayer(viewer);
+    quakeLayer.setOnCountUpdate((count) => setEntityCount('earthquakes', count));
+    quakeLayer.setOnNewQuake((mag, place) => {
+      addNotification({
+        type: 'warning',
+        title: `M${mag.toFixed(1)} Earthquake`,
+        message: place,
+      });
+    });
+
+    const camLayer = new CameraLayer(viewer);
+    camLayer.setOnCountUpdate((count) => setEntityCount('cameras', count));
+
+    layersRef.current.flights = flightLayer;
+    layersRef.current.satellites = satLayer;
+    layersRef.current.earthquakes = quakeLayer;
+    layersRef.current.cameras = camLayer;
+    layersRef.current.historicalTrack = new HistoricalTrackLayer(viewer);
+    layersRef.current.weather = new WeatherLayer(viewer);
 
     viewerRef.current = viewer;
 
@@ -198,6 +267,7 @@ export function Globe() {
       layersRef.current.satellites?.stop();
       layersRef.current.earthquakes?.stop();
       layersRef.current.cameras?.stop();
+      layersRef.current.weather?.stop();
       viewer.destroy();
     };
   }, []);
@@ -243,6 +313,16 @@ export function Globe() {
     }
   }, [layers.cameras]);
 
+  useEffect(() => {
+    const l = layersRef.current;
+    if (layers.weather) {
+      l.weather?.start();
+      setDataTimestamp('weather', Date.now());
+    } else {
+      l.weather?.stop();
+    }
+  }, [layers.weather]);
+
   // Manage filters
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -271,11 +351,123 @@ export function Globe() {
     viewer.scene.requestRender();
   }, [activeFilter]);
 
+  // Historical track rendering
+  useEffect(() => {
+    const trackLayer = layersRef.current.historicalTrack;
+    if (!trackLayer) return;
+    if (activeTrack) {
+      trackLayer.showTrack(activeTrack, {
+        departureAirport: activeHistoricalFlight?.estDepartureAirport,
+        arrivalAirport: activeHistoricalFlight?.estArrivalAirport,
+      });
+    } else {
+      trackLayer.clear();
+    }
+  }, [activeTrack, activeHistoricalFlight]);
+
+  // Highlight selected aircraft in flight layer
+  useEffect(() => {
+    layersRef.current.flights?.setHighlighted(resolvedIcao24);
+  }, [resolvedIcao24]);
+
+  // Trails toggle
+  useEffect(() => {
+    layersRef.current.flights?.setTrailsEnabled(trailsEnabled);
+  }, [trailsEnabled]);
+
+  // Camera flyTo bridge
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || !flyToTarget) return;
+
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(
+        flyToTarget.lon,
+        flyToTarget.lat,
+        Math.max(flyToTarget.alt * 4, 50000)
+      ),
+      duration: 1.5,
+    });
+
+    setFlyToTarget(null);
+  }, [flyToTarget, setFlyToTarget]);
+
+  // Screenshot capture
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || !screenshotRequested) return;
+
+    clearScreenshotRequest();
+    viewer.scene.requestRender();
+
+    requestAnimationFrame(() => {
+      try {
+        const canvas = viewer.scene.canvas;
+        const dataUrl = canvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = `gcc-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
+        link.href = dataUrl;
+        link.click();
+        addNotification({ type: 'success', title: 'Screenshot Saved', message: link.download });
+      } catch (e) {
+        console.error('Screenshot failed:', e);
+        addNotification({ type: 'warning', title: 'Screenshot Failed', message: 'Could not capture the current view' });
+      }
+    });
+  }, [screenshotRequested, clearScreenshotRequest, addNotification]);
+
+  // Measurement visualization
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+
+    // Clear previous measure entities
+    for (const e of measureEntitiesRef.current) {
+      viewer.entities.remove(e);
+    }
+    measureEntitiesRef.current = [];
+
+    // Draw measure points
+    for (const pt of measurePoints) {
+      const entity = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, 100),
+        point: {
+          pixelSize: 8,
+          color: Cesium.Color.fromCssColorString('#4CAF50'),
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 2,
+        },
+      });
+      measureEntitiesRef.current.push(entity);
+    }
+
+    // Draw line between two points
+    if (measureResult) {
+      const lineEntity = viewer.entities.add({
+        polyline: {
+          positions: Cesium.Cartesian3.fromDegreesArray([
+            measureResult.from.lon, measureResult.from.lat,
+            measureResult.to.lon, measureResult.to.lat,
+          ]),
+          width: 2,
+          material: new Cesium.PolylineDashMaterialProperty({
+            color: Cesium.Color.fromCssColorString('#4CAF50'),
+            dashLength: 16,
+          }),
+          clampToGround: true,
+        },
+      });
+      measureEntitiesRef.current.push(lineEntity);
+    }
+
+    viewer.scene.requestRender();
+  }, [measurePoints, measureResult]);
+
   return (
     <div
       ref={containerRef}
       className="w-full h-full absolute inset-0"
-      style={{ background: '#0D1B2A' }}
+      style={{ background: '#0D1B2A', cursor: measureMode ? 'crosshair' : 'default' }}
     />
   );
 }

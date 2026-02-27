@@ -31,11 +31,16 @@ export class SatelliteLayer {
   private updateIntervalId: number | null = null;
   private orbitEntity: Cesium.Entity | null = null;
   private loaded = false;
+  private onCountUpdate: ((count: number) => void) | null = null;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
     this.pointCollection = new Cesium.PointPrimitiveCollection();
     this.viewer.scene.primitives.add(this.pointCollection);
+  }
+
+  setOnCountUpdate(cb: (count: number) => void) {
+    this.onCountUpdate = cb;
   }
 
   async start() {
@@ -91,6 +96,7 @@ export class SatelliteLayer {
           // Skip invalid TLEs
         }
       }
+      this.onCountUpdate?.(this.satellites.length);
     } catch (e) {
       console.error('Failed to load satellite data:', e);
     }

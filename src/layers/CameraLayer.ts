@@ -6,9 +6,14 @@ export class CameraLayer {
   private viewer: Cesium.Viewer;
   private entities: Map<string, Cesium.Entity> = new Map();
   private loaded = false;
+  private onCountUpdate: ((count: number) => void) | null = null;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
+  }
+
+  setOnCountUpdate(cb: (count: number) => void) {
+    this.onCountUpdate = cb;
   }
 
   async start() {
@@ -57,6 +62,7 @@ export class CameraLayer {
         this.entities.set(id, entity);
       }
 
+      this.onCountUpdate?.(this.entities.size);
       this.viewer.scene.requestRender();
       return Date.now();
     } catch (e) {

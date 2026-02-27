@@ -21,9 +21,19 @@ export class EarthquakeLayer {
   private entities: Map<string, Cesium.Entity> = new Map();
   private intervalId: number | null = null;
   private pulseCallback: (() => void) | null = null;
+  private onCountUpdate: ((count: number) => void) | null = null;
+  private onNewQuake: ((mag: number, place: string) => void) | null = null;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
+  }
+
+  setOnCountUpdate(cb: (count: number) => void) {
+    this.onCountUpdate = cb;
+  }
+
+  setOnNewQuake(cb: (mag: number, place: string) => void) {
+    this.onNewQuake = cb;
   }
 
   async start() {
@@ -54,12 +64,21 @@ export class EarthquakeLayer {
 
   private updateEntities(quakes: EarthquakeFeature[]) {
     const incomingIds = new Set<string>();
+    const prevIds = new Set(this.entities.keys());
 
     for (const quake of quakes) {
       const id = `quake-${quake.id}`;
       incomingIds.add(id);
 
       if (this.entities.has(id)) continue;
+
+      // Notify about new significant quakes
+      if (!prevIds.has(id) && prevIds.size > 0) {
+        const mag = quake.properties.mag ?? 0;
+        if (mag >= 4) {
+          this.onNewQuake?.(mag, quake.properties.place ?? 'Unknown');
+        }
+      }
 
       const [lon, lat, depth] = quake.geometry.coordinates;
       const mag = quake.properties.mag ?? 0;
@@ -101,6 +120,8 @@ export class EarthquakeLayer {
         this.entities.delete(id);
       }
     }
+
+    this.onCountUpdate?.(this.entities.size);
   }
 
   private startPulse() {

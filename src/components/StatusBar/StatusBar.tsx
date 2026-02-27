@@ -1,10 +1,11 @@
 import { useAppStore, type LayerState, type DataTimestamp } from '../../store/useAppStore';
 
-const layerLabels: { key: keyof LayerState; label: string; color: string }[] = [
+const layerLabels: { key: keyof LayerState & keyof DataTimestamp; label: string; color: string }[] = [
   { key: 'flights', label: 'Flights', color: '#00E5FF' },
   { key: 'satellites', label: 'Satellites', color: '#FFEB3B' },
   { key: 'earthquakes', label: 'Earthquakes', color: '#FF5722' },
   { key: 'cameras', label: 'Cameras', color: '#FF6B35' },
+  { key: 'weather', label: 'Weather', color: '#64B5F6' },
 ];
 
 function formatTimestamp(ts: number | null): string {
