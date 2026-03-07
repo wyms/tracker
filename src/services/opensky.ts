@@ -64,6 +64,24 @@ export interface BoundingBox {
   east: number;
 }
 
+const OPENSKY_DIRECT = "https://opensky-network.org";
+
+/**
+ * Fetch with proxy-first, direct-fallback strategy.
+ * The Firebase Cloud Function proxy can fail when OpenSky blocks GCP IPs,
+ * so we fall back to calling the OpenSky API directly from the browser.
+ */
+async function fetchWithFallback(proxyUrl: string, directUrl: string): Promise<Response> {
+  try {
+    const res = await fetch(proxyUrl);
+    if (res.ok) return res;
+    // Proxy returned an error — try direct
+  } catch {
+    // Proxy unreachable — try direct
+  }
+  return fetch(directUrl);
+}
+
 function parseStateVector(
   sv: (string | number | boolean | number[] | null)[]
 ): AircraftState {
@@ -101,9 +119,12 @@ export async function fetchFlights(
   }
 
   const query = params.toString();
-  const url = `/api/opensky/states/all${query ? `?${query}` : ""}`;
+  const suffix = `/states/all${query ? `?${query}` : ""}`;
 
-  const response = await fetch(url);
+  const response = await fetchWithFallback(
+    `/api/opensky${suffix}`,
+    `${OPENSKY_DIRECT}/api${suffix}`,
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -123,8 +144,10 @@ export async function fetchFlights(
 export async function searchLiveByCallsign(
   callsign: string
 ): Promise<AircraftState[]> {
-  const url = `/api/opensky/states/all`;
-  const response = await fetch(url);
+  const response = await fetchWithFallback(
+    `/api/opensky/states/all`,
+    `${OPENSKY_DIRECT}/api/states/all`,
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -157,8 +180,11 @@ export async function fetchHistoricalFlights(
     begin: begin.toString(),
     end: end.toString(),
   });
-  const url = `/api/opensky/flights/aircraft?${params}`;
-  const response = await fetch(url);
+  const suffix = `/flights/aircraft?${params}`;
+  const response = await fetchWithFallback(
+    `/api/opensky${suffix}`,
+    `${OPENSKY_DIRECT}/api${suffix}`,
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -177,8 +203,11 @@ export async function fetchAllFlights(
     begin: begin.toString(),
     end: end.toString(),
   });
-  const url = `/api/opensky/flights/all?${params}`;
-  const response = await fetch(url);
+  const suffix = `/flights/all?${params}`;
+  const response = await fetchWithFallback(
+    `/api/opensky${suffix}`,
+    `${OPENSKY_DIRECT}/api${suffix}`,
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -276,8 +305,11 @@ export async function fetchFlightTrack(
     icao24,
     time: time.toString(),
   });
-  const url = `/api/opensky/tracks/all?${params}`;
-  const response = await fetch(url);
+  const suffix = `/tracks/all?${params}`;
+  const response = await fetchWithFallback(
+    `/api/opensky${suffix}`,
+    `${OPENSKY_DIRECT}/api${suffix}`,
+  );
 
   if (!response.ok) {
     throw new Error(
