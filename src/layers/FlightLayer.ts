@@ -6,9 +6,11 @@ const STALE_THRESHOLD = 60_000; // 60 seconds
 const NORMAL_SCALE = 0.4;
 const HIGHLIGHTED_SCALE = 1.2;
 const MAX_TRAIL_POINTS = 20;
-const BASE_POLL_INTERVAL = 15_000; // 15 seconds (OpenSky updates ~every 10s)
+const AUTH_POLL_INTERVAL = 15_000; // 15s for authenticated users
+const ANON_POLL_INTERVAL = 30_000; // 30s for anonymous users
 const MAX_POLL_INTERVAL = 120_000; // 2 minutes max backoff
 const MAX_BBOX_SPAN = 20; // max degrees lat/lon span to avoid requesting the entire globe
+const ANON_AIRCRAFT_CAP = 50;
 
 interface TrailEntry {
   positions: Cesium.Cartesian3[];
@@ -25,9 +27,25 @@ export class FlightLayer {
   private onCountUpdate: ((count: number) => void) | null = null;
   private consecutiveErrors = 0;
   private running = false;
+  private authenticated = false;
+  private bboxOverride: BoundingBox | 'world' | null = null;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
+  }
+
+  setBboxOverride(override: BoundingBox | 'world' | null) {
+    this.bboxOverride = override;
+    this.clearAll();
+    if (this.running) {
+      // Cancel pending poll and trigger an immediate one
+      if (this.timeoutId !== null) {
+        clearTimeout(this.timeoutId);
+        this.timeoutId = null;
+      }
+      this.consecutiveErrors = 0;
+      this.poll();
+    }
   }
 
   setOnCountUpdate(cb: (count: number) => void) {
@@ -40,6 +58,10 @@ export class FlightLayer {
       this.clearAllTrails();
     }
     this.viewer.scene.requestRender();
+  }
+
+  setAuthenticated(authenticated: boolean) {
+    this.authenticated = authenticated;
   }
 
   setHighlighted(icao24: string | null) {
@@ -82,10 +104,14 @@ export class FlightLayer {
     this.clearAll();
   }
 
+  private get basePollInterval() {
+    return this.authenticated ? AUTH_POLL_INTERVAL : ANON_POLL_INTERVAL;
+  }
+
   private scheduleNextPoll() {
     if (!this.running) return;
     const delay = Math.min(
-      BASE_POLL_INTERVAL * Math.pow(2, this.consecutiveErrors),
+      this.basePollInterval * Math.pow(2, this.consecutiveErrors),
       MAX_POLL_INTERVAL,
     );
     this.timeoutId = window.setTimeout(() => this.poll(), delay);
@@ -94,21 +120,32 @@ export class FlightLayer {
   private async poll() {
     if (!this.running) return;
 
-    const bbox = this.getViewBoundingBox();
-    if (!bbox) {
-      this.scheduleNextPoll();
-      return;
+    let bbox: BoundingBox | undefined;
+    if (this.bboxOverride === 'world') {
+      bbox = undefined; // fetch all
+    } else if (this.bboxOverride) {
+      bbox = this.bboxOverride;
+    } else {
+      const viewBbox = this.getViewBoundingBox();
+      if (!viewBbox) {
+        this.scheduleNextPoll();
+        return;
+      }
+      bbox = viewBbox;
     }
 
     try {
-      const aircraft = await fetchFlights(bbox);
+      let aircraft = await fetchFlights(bbox);
+      if (!this.authenticated && aircraft.length > ANON_AIRCRAFT_CAP) {
+        aircraft = aircraft.slice(0, ANON_AIRCRAFT_CAP);
+      }
       this.consecutiveErrors = 0;
       this.updateEntities(aircraft);
       this.onCountUpdate?.(this.entities.size);
     } catch (e) {
       this.consecutiveErrors++;
       console.error(
-        `Flight poll failed (attempt ${this.consecutiveErrors}, next in ${Math.min(BASE_POLL_INTERVAL * Math.pow(2, this.consecutiveErrors), MAX_POLL_INTERVAL) / 1000}s):`,
+        `Flight poll failed (attempt ${this.consecutiveErrors}, next in ${Math.min(this.basePollInterval * Math.pow(2, this.consecutiveErrors), MAX_POLL_INTERVAL) / 1000}s):`,
         e,
       );
     }

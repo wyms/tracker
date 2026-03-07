@@ -33,6 +33,7 @@ async function getOpenSkyToken(): Promise<string | null> {
           client_id: clientId,
           client_secret: clientSecret,
         }),
+        signal: AbortSignal.timeout(15_000),
       }
     );
 
@@ -53,12 +54,47 @@ async function getOpenSkyToken(): Promise<string | null> {
   }
 }
 
+// --- Daily API call counter ---
+
+const DAILY_LIMIT = 4_000;
+
+let apiCallCounter = { date: '', count: 0 };
+
+function trackApiCall() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (apiCallCounter.date !== today) {
+    apiCallCounter = { date: today, count: 0 };
+  }
+  apiCallCounter.count++;
+}
+
+function getApiUsage() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (apiCallCounter.date !== today) {
+    apiCallCounter = { date: today, count: 0 };
+  }
+  return {
+    date: apiCallCounter.date,
+    openSkyCalls: apiCallCounter.count,
+    limit: DAILY_LIMIT,
+    remaining: Math.max(0, DAILY_LIMIT - apiCallCounter.count),
+  };
+}
+
+function getAdaptiveCacheTtl(): number {
+  const usage = getApiUsage();
+  const ratio = usage.openSkyCalls / DAILY_LIMIT;
+  if (ratio >= 0.875) return 120_000;  // 87.5%+ -> 2 min cache
+  if (ratio >= 0.75) return 60_000;    // 75%+ -> 1 min cache
+  return 30_000;                        // normal -> 30s cache
+}
+
 // --- Response cache ---
 // Caches upstream responses by URL to avoid hammering APIs when many clients
 // poll the same endpoint simultaneously. OpenSky data updates ~every 10s,
-// so a 15s TTL is safe.
+// so a 30s TTL is the baseline.
 
-const CACHE_TTL_MS = 15_000;
+const CACHE_TTL_MS = 30_000;
 
 interface CacheEntry {
   status: number;
@@ -91,7 +127,10 @@ async function fetchWithRetry(
 ): Promise<{ status: number; contentType: string | null; body: Buffer }> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, { headers });
+      const res = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(30_000),
+      });
       // Retry on 502/503/429 (rate limit)
       if ((res.status === 502 || res.status === 503 || res.status === 429) && attempt < retries) {
         const delay = 1000 * Math.pow(2, attempt);
@@ -174,7 +213,12 @@ setInterval(cleanCache, 30_000);
 
 // --- Routes ---
 
-// OpenSky API (authenticated + cached)
+// API usage endpoint
+app.get("/api/usage", (_req, res) => {
+  res.json(getApiUsage());
+});
+
+// OpenSky API (authenticated + cached with adaptive TTL)
 app.all("/api/opensky/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/opensky/, "/api");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
@@ -186,7 +230,13 @@ app.all("/api/opensky/*", async (req, res) => {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  await cachedProxyRequest(targetUrl, req, res, headers);
+  // Track the call (only counts cache misses via X-Cache header after response)
+  const cached = responseCache.get(targetUrl);
+  if (!cached || Date.now() >= cached.expiresAt) {
+    trackApiCall();
+  }
+
+  await cachedProxyRequest(targetUrl, req, res, headers, getAdaptiveCacheTtl());
 });
 
 // CelesTrak (no auth, cached)

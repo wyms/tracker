@@ -38,6 +38,9 @@ export function useKeyboardShortcuts() {
         case '5':
           toggleLayer('weather');
           break;
+        case '6':
+          toggleLayer('labels');
+          break;
         case 'f':
         case 'F': {
           const idx = filterOrder.indexOf(activeFilter);

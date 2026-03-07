@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import * as Cesium from 'cesium';
 import { useAppStore } from '../../store/useAppStore';
 import { FlightLayer } from '../../layers/FlightLayer';
+import { FLIGHT_REGIONS } from '../../data/flightRegions';
 import { SatelliteLayer } from '../../layers/SatelliteLayer';
 import { EarthquakeLayer } from '../../layers/EarthquakeLayer';
 import { CameraLayer } from '../../layers/CameraLayer';
@@ -30,6 +31,8 @@ export function Globe() {
     historicalTrack: null,
     weather: null,
   });
+  const tilesetRef = useRef<Cesium.Cesium3DTileset | null>(null);
+  const labelsLayerRef = useRef<Cesium.ImageryLayer | null>(null);
   const filterStageRef = useRef<Cesium.PostProcessStage | null>(null);
   const measureEntitiesRef = useRef<Cesium.Entity[]>([]);
 
@@ -209,6 +212,7 @@ export function Globe() {
     Cesium.createGooglePhotorealistic3DTileset()
       .then((tileset) => {
         viewer.scene.primitives.add(tileset);
+        tilesetRef.current = tileset;
         viewer.scene.requestRender();
       })
       .catch((e) => {
@@ -238,6 +242,7 @@ export function Globe() {
 
     const quakeLayer = new EarthquakeLayer(viewer);
     quakeLayer.setOnCountUpdate((count) => setEntityCount('earthquakes', count));
+    quakeLayer.setOnDataUpdate((quakes) => useAppStore.getState().setEarthquakeList(quakes));
     quakeLayer.setOnNewQuake((mag, place) => {
       addNotification({
         type: 'warning',
@@ -323,6 +328,33 @@ export function Globe() {
     }
   }, [layers.weather]);
 
+  // Labels overlay (Google 2D roadmap on 3D tiles)
+  useEffect(() => {
+    const tileset = tilesetRef.current;
+    if (!tileset) return;
+
+    if (layers.labels) {
+      Cesium.Google2DImageryProvider.fromUrl({
+        mapType: 'roadmap',
+        overlayLayerType: 'layerRoadmap',
+      }).then((provider) => {
+        if (!tilesetRef.current) return;
+        const layer = tilesetRef.current.imageryLayers.addImageryProvider(provider as Cesium.ImageryProvider);
+        layer.alpha = 0.7;
+        labelsLayerRef.current = layer;
+        viewerRef.current?.scene.requestRender();
+      }).catch((e) => {
+        console.error('Failed to load Google labels overlay:', e);
+      });
+    } else {
+      if (labelsLayerRef.current) {
+        tilesetRef.current?.imageryLayers.remove(labelsLayerRef.current);
+        labelsLayerRef.current = null;
+        viewerRef.current?.scene.requestRender();
+      }
+    }
+  }, [layers.labels]);
+
   // Manage filters
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -374,6 +406,29 @@ export function Globe() {
   useEffect(() => {
     layersRef.current.flights?.setTrailsEnabled(trailsEnabled);
   }, [trailsEnabled]);
+
+  // Sync auth state to FlightLayer
+  const user = useAppStore((s) => s.user);
+  useEffect(() => {
+    layersRef.current.flights?.setAuthenticated(!!user);
+  }, [user]);
+
+  // Sync flight region to FlightLayer
+  const flightRegion = useAppStore((s) => s.flightRegion);
+  useEffect(() => {
+    const fl = layersRef.current.flights;
+    if (!fl) return;
+    if (flightRegion === 'viewport') {
+      fl.setBboxOverride(null);
+    } else if (flightRegion === 'world') {
+      fl.setBboxOverride('world');
+    } else {
+      const region = FLIGHT_REGIONS.find((r) => r.id === flightRegion);
+      if (region?.bbox) {
+        fl.setBboxOverride(region.bbox);
+      }
+    }
+  }, [flightRegion]);
 
   // Camera flyTo bridge
   useEffect(() => {

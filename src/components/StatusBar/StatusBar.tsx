@@ -14,8 +14,15 @@ function formatTimestamp(ts: number | null): string {
   return d.toLocaleTimeString('en-US', { hour12: false });
 }
 
+function usageColor(calls: number, limit: number): string {
+  const ratio = calls / limit;
+  if (ratio >= 0.875) return '#FF5722';
+  if (ratio >= 0.75) return '#FFEB3B';
+  return '#4CAF50';
+}
+
 export function StatusBar() {
-  const { layers, dataTimestamps } = useAppStore();
+  const { layers, dataTimestamps, user, apiUsage } = useAppStore();
 
   return (
     <div className="absolute bottom-0 left-0 right-0 z-10">
@@ -43,6 +50,14 @@ export function StatusBar() {
             </span>
           </div>
         ))}
+        {user && apiUsage && (
+          <div className="flex items-center gap-2 text-xs font-mono">
+            <span style={{ color: '#9CA3AF' }}>API</span>
+            <span style={{ color: usageColor(apiUsage.calls, apiUsage.limit) }}>
+              {apiUsage.calls.toLocaleString()}/{apiUsage.limit.toLocaleString()}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

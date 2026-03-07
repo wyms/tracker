@@ -23,6 +23,7 @@ export class EarthquakeLayer {
   private pulseCallback: (() => void) | null = null;
   private onCountUpdate: ((count: number) => void) | null = null;
   private onNewQuake: ((mag: number, place: string) => void) | null = null;
+  private onDataUpdate: ((quakes: EarthquakeFeature[]) => void) | null = null;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -34,6 +35,10 @@ export class EarthquakeLayer {
 
   setOnNewQuake(cb: (mag: number, place: string) => void) {
     this.onNewQuake = cb;
+  }
+
+  setOnDataUpdate(cb: (quakes: EarthquakeFeature[]) => void) {
+    this.onDataUpdate = cb;
   }
 
   async start() {
@@ -122,6 +127,7 @@ export class EarthquakeLayer {
     }
 
     this.onCountUpdate?.(this.entities.size);
+    this.onDataUpdate?.(quakes);
   }
 
   private startPulse() {

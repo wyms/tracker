@@ -1,9 +1,22 @@
 import { create } from 'zustand';
 import type { AircraftState, HistoricalFlight, FlightTrack } from '../services/opensky';
+import type { EarthquakeFeature } from '../services/usgs';
 
 export type FilterMode = 'normal' | 'flir' | 'nightvision' | 'crt';
 
 export type SearchStatus = 'idle' | 'searching' | 'resolving' | 'loading_history' | 'loading_track' | 'error';
+
+export interface AppUser {
+  uid: string;
+  displayName: string | null;
+  photoURL: string | null;
+}
+
+export interface ApiUsage {
+  calls: number;
+  limit: number;
+  remaining: number;
+}
 
 export interface LayerState {
   flights: boolean;
@@ -11,6 +24,7 @@ export interface LayerState {
   earthquakes: boolean;
   cameras: boolean;
   weather: boolean;
+  labels: boolean;
 }
 
 export interface DataTimestamp {
@@ -93,6 +107,10 @@ interface AppState {
   entityCounts: EntityCounts;
   setEntityCount: (layer: keyof EntityCounts, count: number) => void;
 
+  // Flight region
+  flightRegion: string;
+  setFlightRegion: (region: string) => void;
+
   // Trails
   trailsEnabled: boolean;
   toggleTrails: () => void;
@@ -146,6 +164,18 @@ interface AppState {
   resolvedIcao24: string | null;
   setResolvedIcao24: (icao24: string | null) => void;
   clearSearch: () => void;
+
+  // Earthquake list
+  earthquakeList: EarthquakeFeature[];
+  setEarthquakeList: (list: EarthquakeFeature[]) => void;
+
+  // Auth
+  user: AppUser | null;
+  setUser: (user: AppUser | null) => void;
+
+  // API usage
+  apiUsage: ApiUsage | null;
+  setApiUsage: (usage: ApiUsage | null) => void;
 }
 
 function loadBookmarksFromStorage(): Bookmark[] {
@@ -170,6 +200,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     earthquakes: true,
     cameras: true,
     weather: false,
+    labels: false,
   },
   toggleLayer: (layer) =>
     set((state) => ({
@@ -203,6 +234,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       entityCounts: { ...state.entityCounts, [layer]: count },
     })),
+
+  // Flight region
+  flightRegion: 'viewport',
+  setFlightRegion: (region) => set({ flightRegion: region }),
 
   // Trails
   trailsEnabled: true,
@@ -328,4 +363,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       flyToTarget: null,
       resolvedIcao24: null,
     }),
+
+  // Earthquake list
+  earthquakeList: [],
+  setEarthquakeList: (list) => set({ earthquakeList: list }),
+
+  // Auth
+  user: null,
+  setUser: (user) => set({ user }),
+
+  // API usage
+  apiUsage: null,
+  setApiUsage: (apiUsage) => set({ apiUsage }),
 }));
