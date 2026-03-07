@@ -2,6 +2,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import express from "express";
 import cors from "cors";
+import { Agent } from "undici";
 
 const OPENSKY_CLIENT_ID = defineSecret("OPENSKY_CLIENT_ID");
 const OPENSKY_CLIENT_SECRET = defineSecret("OPENSKY_CLIENT_SECRET");
@@ -120,6 +121,14 @@ function cleanCache() {
 
 // --- Proxy helper with caching and retry ---
 
+// Custom undici Agent with longer connect timeout (default is only 10s,
+// which is too short for OpenSky from some GCP regions)
+const agent = new Agent({
+  connect: { timeout: 30_000 },
+  headersTimeout: 30_000,
+  bodyTimeout: 30_000,
+});
+
 async function fetchWithRetry(
   url: string,
   headers: Record<string, string>,
@@ -130,6 +139,7 @@ async function fetchWithRetry(
       const res = await fetch(url, {
         headers,
         signal: AbortSignal.timeout(30_000),
+        dispatcher: agent as any,
       });
       // Retry on 502/503/429 (rate limit)
       if ((res.status === 502 || res.status === 503 || res.status === 429) && attempt < retries) {
@@ -267,7 +277,7 @@ app.all("/api/austin/*", async (req, res) => {
 
 export const api = onRequest(
   {
-    region: "us-central1",
+    region: "europe-west1",
     memory: "256MiB",
     concurrency: 80,
     timeoutSeconds: 60,
