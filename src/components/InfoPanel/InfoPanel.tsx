@@ -1,4 +1,6 @@
+import { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/useAppStore';
+import { fetchHistoricalFlights } from '../../services/opensky';
 
 export function InfoPanel() {
   const { selectedEntity, setSelectedEntity } = useAppStore();
@@ -77,6 +79,36 @@ function InfoRow({ label, value }: { label: string; value: string | number | und
 }
 
 function AircraftInfo({ data }: { data: Record<string, unknown> }) {
+  const [route, setRoute] = useState<{ departure: string | null; arrival: string | null } | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const icao24 = data.icao24 as string | undefined;
+
+  useEffect(() => {
+    if (!icao24) return;
+    setRoute(null);
+    setRouteLoading(true);
+
+    const now = Math.floor(Date.now() / 1000);
+    const twoDaysAgo = now - 2 * 86400;
+
+    fetchHistoricalFlights(icao24, twoDaysAgo, now)
+      .then((flights) => {
+        if (flights.length > 0) {
+          const latest = flights[flights.length - 1];
+          setRoute({
+            departure: latest.estDepartureAirport,
+            arrival: latest.estArrivalAirport,
+          });
+        } else {
+          setRoute({ departure: null, arrival: null });
+        }
+      })
+      .catch(() => {
+        setRoute({ departure: null, arrival: null });
+      })
+      .finally(() => setRouteLoading(false));
+  }, [icao24]);
+
   return (
     <div className="space-y-0.5">
       <div className="text-sm font-bold text-white mb-2">
@@ -104,6 +136,14 @@ function AircraftInfo({ data }: { data: Record<string, unknown> }) {
         }
       />
       <InfoRow label="On Ground" value={data.on_ground ? 'Yes' : 'No'} />
+      {routeLoading ? (
+        <div className="text-xs text-gray-500 font-mono pt-1">Loading route...</div>
+      ) : route && (route.departure || route.arrival) ? (
+        <>
+          <InfoRow label="From" value={route.departure || 'N/A'} />
+          <InfoRow label="To" value={route.arrival || 'N/A'} />
+        </>
+      ) : null}
     </div>
   );
 }

@@ -118,6 +118,7 @@ export function Globe() {
                   type: 'aircraft',
                   id: data.icao24,
                   data: {
+                    icao24: data.icao24,
                     callsign: data.callsign?.trim() || data.icao24,
                     altitude: data.baro_altitude,
                     velocity: data.velocity,

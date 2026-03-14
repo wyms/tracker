@@ -125,6 +125,7 @@ export function SearchPanel() {
       type: 'aircraft',
       id: ac.icao24,
       data: {
+        icao24: ac.icao24,
         callsign: ac.callsign?.trim() || ac.icao24,
         altitude: ac.baro_altitude,
         velocity: ac.velocity,
@@ -187,7 +188,7 @@ export function SearchPanel() {
   };
 
   return (
-    <div className="absolute top-[220px] left-4 z-10 w-56">
+    <div className="absolute top-[220px] left-4 z-10 w-56 hidden md:block">
       <div
         className="rounded-lg border backdrop-blur-sm overflow-hidden"
         style={{

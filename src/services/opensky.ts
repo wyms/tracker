@@ -66,20 +66,92 @@ export interface BoundingBox {
 
 const OPENSKY_DIRECT = "https://opensky-network.org";
 
+// --- Client-side OAuth2 token cache ---
+// Used when the Cloud Function proxy is unreachable (GCP connectivity issues).
+// Credentials are already in VITE_ env vars (bundled into the client).
+
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
+async function getOpenSkyToken(): Promise<string | null> {
+  const clientId = import.meta.env.VITE_OPENSKY_CLIENT_ID;
+  const clientSecret = import.meta.env.VITE_OPENSKY_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return null;
+
+  if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) {
+    return cachedToken.token;
+  }
+
+  try {
+    const res = await fetch(
+      "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: clientId,
+          client_secret: clientSecret,
+        }),
+      },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    cachedToken = {
+      token: data.access_token,
+      expiresAt: Date.now() + data.expires_in * 1000,
+    };
+    return cachedToken.token;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Fetch with proxy-first, direct-fallback strategy.
- * The Firebase Cloud Function proxy can fail when OpenSky blocks GCP IPs,
- * so we fall back to calling the OpenSky API directly from the browser.
+ * Fetch with triple-fallback strategy:
+ * 1. Cloud Function proxy (fastest when working, 4s timeout)
+ * 2. CORS proxy via allorigins.win (reliable fallback when GCP is blocked)
+ * 3. Direct OpenSky call with auth (works in dev, CORS-blocked in prod)
  */
 async function fetchWithFallback(proxyUrl: string, directUrl: string): Promise<Response> {
+  // 1. Cloud Function proxy — fast but GCP IPs may be blocked
+  const proxyController = new AbortController();
+  const proxyTimeout = setTimeout(() => proxyController.abort(), 4_000);
+
+  const proxyPromise = fetch(proxyUrl, { signal: proxyController.signal })
+    .then((res) => {
+      clearTimeout(proxyTimeout);
+      if (!res.ok) throw new Error(`Proxy ${res.status}`);
+      return res;
+    })
+    .catch((err) => {
+      clearTimeout(proxyTimeout);
+      throw err;
+    });
+
+  // 2. CORS proxy fallback — uses allorigins.win to bypass CORS + GCP blocks
+  const corsProxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
+  const corsProxyPromise = fetch(corsProxyUrl)
+    .then((res) => {
+      if (!res.ok) throw new Error(`CORSProxy ${res.status}`);
+      return res;
+    });
+
+  // 3. Direct call with auth (works in dev via Vite proxy, CORS-blocked in prod)
+  const directPromise = (async () => {
+    const token = await getOpenSkyToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(directUrl, { headers });
+    if (!res.ok) throw new Error(`Direct ${res.status}`);
+    return res;
+  })();
+
   try {
-    const res = await fetch(proxyUrl);
-    if (res.ok) return res;
-    // Proxy returned an error — try direct
+    return await Promise.any([proxyPromise, corsProxyPromise, directPromise]);
   } catch {
-    // Proxy unreachable — try direct
+    // All three failed — try CORS proxy one more time as final attempt
+    return corsProxyPromise;
   }
-  return fetch(directUrl);
 }
 
 function parseStateVector(
@@ -106,9 +178,61 @@ function parseStateVector(
   };
 }
 
+/**
+ * Parse adsb.fi aircraft object into our AircraftState format.
+ */
+function parseAdsbFiAircraft(ac: Record<string, unknown>): AircraftState {
+  return {
+    icao24: (ac.hex as string) || "",
+    callsign: ac.flight != null ? (ac.flight as string).trim() : null,
+    origin_country: (ac.r as string) || "",
+    time_position: ac.seen_pos != null ? Math.floor(Date.now() / 1000) - (ac.seen_pos as number) : null,
+    last_contact: Math.floor(Date.now() / 1000) - ((ac.seen as number) || 0),
+    longitude: (ac.lon as number) ?? null,
+    latitude: (ac.lat as number) ?? null,
+    baro_altitude: ac.alt_baro === "ground" ? 0 : (ac.alt_baro as number ?? null),
+    on_ground: ac.alt_baro === "ground",
+    velocity: (ac.gs as number) ?? null,
+    true_track: (ac.track as number) ?? null,
+    vertical_rate: ac.baro_rate != null ? (ac.baro_rate as number) * 0.00508 : null, // fpm to m/s
+    sensors: null,
+    geo_altitude: (ac.alt_geom as number) ?? null,
+    squawk: (ac.squawk as string) ?? null,
+    spi: false,
+    position_source: 0,
+  };
+}
+
+/**
+ * Fetch flights using adsb.fi (primary) with OpenSky fallback.
+ * adsb.fi is free, no auth, and reachable from GCP.
+ */
 export async function fetchFlights(
   bbox?: BoundingBox
 ): Promise<AircraftState[]> {
+  // Try adsb.fi first (via Cloud Function proxy for CORS)
+  try {
+    if (bbox) {
+      const centerLat = (bbox.south + bbox.north) / 2;
+      const centerLon = (bbox.west + bbox.east) / 2;
+      // Approximate distance in nautical miles from bbox span
+      const latSpan = bbox.north - bbox.south;
+      const lonSpan = bbox.east - bbox.west;
+      const dist = Math.min(250, Math.max(latSpan, lonSpan) * 30);
+      const res = await fetch(`/api/adsb/api/v2/lat/${centerLat.toFixed(2)}/lon/${centerLon.toFixed(2)}/dist/${Math.round(dist)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const aircraft = (data.aircraft || []) as Record<string, unknown>[];
+        return aircraft
+          .filter((ac) => ac.lat != null && ac.lon != null)
+          .map(parseAdsbFiAircraft);
+      }
+    }
+  } catch {
+    // adsb.fi failed, fall through to OpenSky
+  }
+
+  // Fallback to OpenSky
   const params = new URLSearchParams();
 
   if (bbox) {
@@ -279,8 +403,9 @@ export async function fetchHistoricalFlightsFullRange(
   begin: number,
   end: number
 ): Promise<HistoricalFlight[]> {
-  const MAX_RANGE = 30 * 86400; // 30 days in seconds
+  const MAX_RANGE = 86400; // 1 day — OpenSky limits queries to ~2 calendar day partitions
   const results: HistoricalFlight[] = [];
+  let lastError: Error | null = null;
 
   let cursor = begin;
   while (cursor < end) {
@@ -288,10 +413,16 @@ export async function fetchHistoricalFlightsFullRange(
     try {
       const flights = await fetchHistoricalFlights(icao24, cursor, chunkEnd);
       results.push(...flights);
-    } catch {
-      // If one chunk fails, continue with the next
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      console.error(`Historical flights chunk failed (${icao24}, ${cursor}-${chunkEnd}):`, e);
     }
     cursor = chunkEnd;
+  }
+
+  // If all chunks failed and we have no results, throw so the UI can show the error
+  if (results.length === 0 && lastError) {
+    throw lastError;
   }
 
   return results;

@@ -48,7 +48,7 @@ export function EarthquakePanel() {
   };
 
   return (
-    <div className="absolute top-16 left-[26rem] z-10">
+    <div className="absolute top-16 left-[26rem] z-10 hidden md:block">
       <button
         onClick={() => setOpen(!open)}
         className="rounded-lg px-3 py-2 border backdrop-blur-sm text-xs font-mono"

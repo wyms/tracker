@@ -17,6 +17,7 @@ import { EarthquakePanel } from './components/EarthquakePanel/EarthquakePanel';
 import { FlyToInput } from './components/FlyToInput/FlyToInput';
 import { MeasureTool } from './components/MeasureTool/MeasureTool';
 import { NotificationToast } from './components/NotificationToast/NotificationToast';
+import { TrackedFlightsPanel } from './components/TrackedFlightsPanel/TrackedFlightsPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 function App() {
@@ -81,6 +82,7 @@ function App() {
       <Toolbar />
       <MeasureTool />
       <NotificationToast />
+      <TrackedFlightsPanel />
       <StatusBar />
     </div>
   );

@@ -15,7 +15,7 @@ export function StatsPanel() {
     .reduce((sum, [key]) => sum + entityCounts[key as keyof typeof entityCounts], 0);
 
   return (
-    <div className="absolute bottom-10 left-4 z-10">
+    <div className="absolute bottom-10 left-4 z-10 hidden md:block">
       <div
         className="rounded-lg p-3 border backdrop-blur-sm"
         style={{

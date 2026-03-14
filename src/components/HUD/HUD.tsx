@@ -16,7 +16,7 @@ export function HUD() {
   };
 
   return (
-    <div className="absolute top-4 right-4 z-10">
+    <div className="absolute top-4 right-4 z-10 hidden md:block">
       <div
         className="rounded-lg px-4 py-3 border backdrop-blur-sm"
         style={{

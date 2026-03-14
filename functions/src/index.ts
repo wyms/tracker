@@ -1,8 +1,11 @@
 import { onRequest } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineSecret } from "firebase-functions/params";
+import * as admin from "firebase-admin";
 import express from "express";
 import cors from "cors";
-import { Agent } from "undici";
+admin.initializeApp();
+const db = admin.firestore();
 
 const OPENSKY_CLIENT_ID = defineSecret("OPENSKY_CLIENT_ID");
 const OPENSKY_CLIENT_SECRET = defineSecret("OPENSKY_CLIENT_SECRET");
@@ -24,7 +27,9 @@ async function getOpenSkyToken(): Promise<string | null> {
       return cachedToken.token;
     }
 
-    const response = await fetch(
+    const tokenController = new AbortController();
+    const tokenTimeout = setTimeout(() => tokenController.abort(), 30_000);
+    const response = await globalThis.fetch(
       "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
       {
         method: "POST",
@@ -34,9 +39,10 @@ async function getOpenSkyToken(): Promise<string | null> {
           client_id: clientId,
           client_secret: clientSecret,
         }),
-        signal: AbortSignal.timeout(15_000),
+        signal: tokenController.signal,
       }
     );
+    clearTimeout(tokenTimeout);
 
     if (!response.ok) {
       console.error("OpenSky token request failed:", response.status);
@@ -121,14 +127,6 @@ function cleanCache() {
 
 // --- Proxy helper with caching and retry ---
 
-// Custom undici Agent with longer connect timeout (default is only 10s,
-// which is too short for OpenSky from some GCP regions)
-const agent = new Agent({
-  connect: { timeout: 30_000 },
-  headersTimeout: 30_000,
-  bodyTimeout: 30_000,
-});
-
 async function fetchWithRetry(
   url: string,
   headers: Record<string, string>,
@@ -136,11 +134,15 @@ async function fetchWithRetry(
 ): Promise<{ status: number; contentType: string | null; body: Buffer }> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, {
+      // Use globalThis.fetch (native Node fetch) for better GCP compatibility.
+      // The custom undici agent causes connect timeouts on GCP networking.
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
+      const res = await globalThis.fetch(url, {
         headers,
-        signal: AbortSignal.timeout(30_000),
-        dispatcher: agent as any,
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       // Retry on 502/503/429 (rate limit)
       if ((res.status === 502 || res.status === 503 || res.status === 429) && attempt < retries) {
         const delay = 1000 * Math.pow(2, attempt);
@@ -273,15 +275,115 @@ app.all("/api/austin/*", async (req, res) => {
   await cachedProxyRequest(targetUrl, req, res, {}, 60_000);
 });
 
+// ADS-B Exchange open data (adsb.fi — no auth, cached 10s)
+app.all("/api/adsb/*", async (req, res) => {
+  const path = req.path.replace(/^\/api\/adsb/, "");
+  const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  const targetUrl = `https://opendata.adsb.fi${path}${qs}`;
+  await cachedProxyRequest(targetUrl, req, res, {}, 10_000);
+});
+
+// --- Tracked flights API endpoint ---
+
+const TRACKED_CALLSIGNS = ["N307EL", "N308EL", "N309EL"];
+
+app.get("/api/tracked-flights", async (_req, res) => {
+  try {
+    const snapshot = await db
+      .collection("tracked-flights")
+      .orderBy("timestamp", "desc")
+      .limit(100)
+      .get();
+    const docs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json(docs);
+  } catch (err) {
+    console.error("Failed to read tracked flights:", err);
+    res.status(500).json({ error: "Failed to read tracked flights" });
+  }
+});
+
 // --- Export as Gen 2 Cloud Function ---
 
 export const api = onRequest(
   {
-    region: "europe-west1",
+    region: "europe-west2",
     memory: "256MiB",
     concurrency: 80,
     timeoutSeconds: 60,
     secrets: [OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET],
   },
   app
+);
+
+// --- Scheduled flight tracker ---
+// Runs every 30 minutes, checks if tracked aircraft are airborne,
+// and logs their state to Firestore.
+
+export const trackFlights = onSchedule(
+  {
+    schedule: "every 30 minutes",
+    region: "us-central1",
+    memory: "256MiB",
+    timeoutSeconds: 120,
+    secrets: [OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET],
+  },
+  async () => {
+    console.log("trackFlights: polling OpenSky for", TRACKED_CALLSIGNS.join(", "));
+
+    // /states/all works without auth — skip token to avoid timeout on auth server.
+    // Use native fetch (no custom undici agent) for better GCP compatibility.
+    let states: any[][] = [];
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60_000);
+      const res = await globalThis.fetch("https://opensky-network.org/api/states/all", {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const data = await res.json() as { states: any[][] | null };
+        states = data.states ?? [];
+      } else {
+        console.error("trackFlights: OpenSky returned", res.status);
+        return;
+      }
+    } catch (err) {
+      console.error("trackFlights: fetch failed:", err);
+      return;
+    }
+
+    const needles = new Set(TRACKED_CALLSIGNS.map((c) => c.toUpperCase()));
+    const matches = states.filter((sv) => {
+      const cs = (sv[1] as string | null)?.trim().toUpperCase();
+      return cs && needles.has(cs);
+    });
+
+    console.log(`trackFlights: found ${matches.length} of ${TRACKED_CALLSIGNS.length} tracked aircraft airborne`);
+
+    const batch = db.batch();
+    const now = Date.now();
+
+    for (const sv of matches) {
+      const doc = db.collection("tracked-flights").doc();
+      batch.set(doc, {
+        callsign: (sv[1] as string).trim(),
+        icao24: sv[0] as string,
+        origin_country: sv[2] as string,
+        longitude: sv[5] as number | null,
+        latitude: sv[6] as number | null,
+        baro_altitude: sv[7] as number | null,
+        on_ground: sv[8] as boolean,
+        velocity: sv[9] as number | null,
+        true_track: sv[10] as number | null,
+        vertical_rate: sv[11] as number | null,
+        geo_altitude: sv[13] as number | null,
+        timestamp: now,
+      });
+    }
+
+    if (matches.length > 0) {
+      await batch.commit();
+      console.log(`trackFlights: wrote ${matches.length} records to Firestore`);
+    }
+  }
 );
