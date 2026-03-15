@@ -11,6 +11,8 @@ const ANON_POLL_INTERVAL = 30_000; // 30s for anonymous users
 const MAX_POLL_INTERVAL = 120_000; // 2 minutes max backoff
 const MAX_BBOX_SPAN = 20; // max degrees lat/lon span to avoid requesting the entire globe
 const ANON_AIRCRAFT_CAP = 50;
+const NEAR_ME_CAP = 50;
+const NEAR_ME_BBOX_DEGREES = 3; // ±3 degrees (~330km) around user
 
 interface TrailEntry {
   positions: Cesium.Cartesian3[];
@@ -29,6 +31,7 @@ export class FlightLayer {
   private running = false;
   private authenticated = false;
   private bboxOverride: BoundingBox | 'world' | null = null;
+  private nearMeCenter: { lat: number; lon: number } | null = null;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -45,6 +48,20 @@ export class FlightLayer {
       }
       this.consecutiveErrors = 0;
       this.poll();
+    }
+  }
+
+  setNearMeCenter(center: { lat: number; lon: number } | null) {
+    this.nearMeCenter = center;
+    if (center) {
+      this.setBboxOverride({
+        south: center.lat - NEAR_ME_BBOX_DEGREES,
+        north: center.lat + NEAR_ME_BBOX_DEGREES,
+        west: center.lon - NEAR_ME_BBOX_DEGREES,
+        east: center.lon + NEAR_ME_BBOX_DEGREES,
+      });
+    } else {
+      this.setBboxOverride(null);
     }
   }
 
@@ -136,7 +153,17 @@ export class FlightLayer {
 
     try {
       let aircraft = await fetchFlights(bbox);
-      if (!this.authenticated && aircraft.length > ANON_AIRCRAFT_CAP) {
+      if (this.nearMeCenter) {
+        const { lat: uLat, lon: uLon } = this.nearMeCenter;
+        aircraft = aircraft
+          .filter((a) => a.latitude != null && a.longitude != null)
+          .sort((a, b) => {
+            const dA = (a.latitude! - uLat) ** 2 + (a.longitude! - uLon) ** 2;
+            const dB = (b.latitude! - uLat) ** 2 + (b.longitude! - uLon) ** 2;
+            return dA - dB;
+          })
+          .slice(0, NEAR_ME_CAP);
+      } else if (!this.authenticated && aircraft.length > ANON_AIRCRAFT_CAP) {
         aircraft = aircraft.slice(0, ANON_AIRCRAFT_CAP);
       }
       this.consecutiveErrors = 0;

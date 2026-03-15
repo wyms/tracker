@@ -446,20 +446,28 @@ export function Globe() {
 
   // Sync flight region to FlightLayer
   const flightRegion = useAppStore((s) => s.flightRegion);
+  const userLocation = useAppStore((s) => s.userLocation);
   useEffect(() => {
     const fl = layersRef.current.flights;
     if (!fl) return;
-    if (flightRegion === 'viewport') {
-      fl.setBboxOverride(null);
-    } else if (flightRegion === 'world') {
-      fl.setBboxOverride('world');
+    if (flightRegion === 'nearme') {
+      if (userLocation) {
+        fl.setNearMeCenter(userLocation);
+      }
     } else {
-      const region = FLIGHT_REGIONS.find((r) => r.id === flightRegion);
-      if (region?.bbox) {
-        fl.setBboxOverride(region.bbox);
+      fl.setNearMeCenter(null);
+      if (flightRegion === 'viewport') {
+        fl.setBboxOverride(null);
+      } else if (flightRegion === 'world') {
+        fl.setBboxOverride('world');
+      } else {
+        const region = FLIGHT_REGIONS.find((r) => r.id === flightRegion);
+        if (region?.bbox) {
+          fl.setBboxOverride(region.bbox);
+        }
       }
     }
-  }, [flightRegion]);
+  }, [flightRegion, userLocation]);
 
   // Camera flyTo bridge
   useEffect(() => {

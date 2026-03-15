@@ -25,7 +25,7 @@ function useIsMobile() {
 }
 
 export function Sidebar() {
-  const { layers, toggleLayer, entityCounts, user, flightRegion, setFlightRegion } = useAppStore();
+  const { layers, toggleLayer, entityCounts, user, flightRegion, setFlightRegion, setUserLocation, setFlyToTarget, addNotification } = useAppStore();
   const [showNudge, setShowNudge] = useState(false);
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(!isMobile);
@@ -47,6 +47,31 @@ export function Sidebar() {
     }
     return groups;
   }, []);
+
+  const handleRegionChange = (value: string) => {
+    if (value === 'nearme') {
+      if (!navigator.geolocation) {
+        addNotification({ type: 'warning', title: 'Geolocation', message: 'Geolocation is not supported by your browser' });
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+          setUserLocation(loc);
+          setFlightRegion('nearme');
+          setFlyToTarget({ lat: loc.lat, lon: loc.lon, alt: 5000 });
+          addNotification({ type: 'success', title: 'Near Me', message: 'Showing 50 closest aircraft' });
+        },
+        (err) => {
+          addNotification({ type: 'warning', title: 'Location Denied', message: err.message || 'Could not get your location' });
+        },
+        { enableHighAccuracy: false, timeout: 10000 },
+      );
+      return;
+    }
+    setUserLocation(null);
+    setFlightRegion(value);
+  };
 
   const handleToggle = (key: keyof LayerState) => {
     if (key === 'flights' && !user && !layers.flights) {
@@ -162,7 +187,7 @@ export function Sidebar() {
                   {key === 'flights' && layers.flights && (
                     <select
                       value={flightRegion}
-                      onChange={(e) => setFlightRegion(e.target.value)}
+                      onChange={(e) => handleRegionChange(e.target.value)}
                       className="mt-1.5 ml-5 w-[calc(100%-1.25rem)] text-xs rounded px-2 py-1 font-mono outline-none cursor-pointer"
                       style={{
                         background: 'rgba(0,229,255,0.08)',

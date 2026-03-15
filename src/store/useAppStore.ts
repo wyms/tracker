@@ -114,6 +114,10 @@ interface AppState {
   flightRegion: string;
   setFlightRegion: (region: string) => void;
 
+  // User geolocation
+  userLocation: { lat: number; lon: number } | null;
+  setUserLocation: (loc: { lat: number; lon: number } | null) => void;
+
   // Trails
   trailsEnabled: boolean;
   toggleTrails: () => void;
@@ -243,6 +247,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Flight region
   flightRegion: 'viewport',
   setFlightRegion: (region) => set({ flightRegion: region }),
+
+  // User geolocation
+  userLocation: null,
+  setUserLocation: (loc) => set({ userLocation: loc }),
 
   // Trails
   trailsEnabled: true,
