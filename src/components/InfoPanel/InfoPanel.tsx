@@ -17,6 +17,8 @@ export function InfoPanel() {
         return <EarthquakeInfo data={selectedEntity.data} />;
       case 'camera':
         return <CameraInfo data={selectedEntity.data} />;
+      case 'groundStop':
+        return <GroundStopInfo data={selectedEntity.data} />;
       default:
         return null;
     }
@@ -27,6 +29,7 @@ export function InfoPanel() {
     satellite: 'SATELLITE',
     earthquake: 'EARTHQUAKE',
     camera: 'CAMERA',
+    groundStop: 'FAA ALERT',
   }[selectedEntity.type];
 
   const typeColor = {
@@ -34,6 +37,7 @@ export function InfoPanel() {
     satellite: '#FFEB3B',
     earthquake: '#FF5722',
     camera: '#FF6B35',
+    groundStop: '#FF1744',
   }[selectedEntity.type];
 
   return (
@@ -216,6 +220,25 @@ function CameraInfo({ data }: { data: Record<string, unknown> }) {
       <InfoRow label="Status" value={data.camera_status as string} />
       <InfoRow label="Comm" value={data.comm_status as string} />
       <InfoRow label="Manufacturer" value={data.camera_mfg as string} />
+    </div>
+  );
+}
+
+function GroundStopInfo({ data }: { data: Record<string, unknown> }) {
+  const typeLabels: Record<string, string> = {
+    ground_stop: 'Ground Stop',
+    ground_delay: 'Ground Delay Program',
+    closure: 'Airport Closure',
+    delay: 'Arrival/Departure Delay',
+  };
+  return (
+    <div className="space-y-0.5">
+      <div className="text-sm font-bold text-white mb-2">
+        {String(data.airport || 'Unknown')}
+      </div>
+      <InfoRow label="Program" value={typeLabels[data.type as string] || String(data.type)} />
+      <InfoRow label="Reason" value={data.reason as string} />
+      <InfoRow label="Detail" value={data.detail as string} />
     </div>
   );
 }

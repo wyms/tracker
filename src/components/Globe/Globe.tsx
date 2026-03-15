@@ -8,6 +8,7 @@ import { EarthquakeLayer } from '../../layers/EarthquakeLayer';
 import { CameraLayer } from '../../layers/CameraLayer';
 import { HistoricalTrackLayer } from '../../layers/HistoricalTrackLayer';
 import { WeatherLayer } from '../../layers/WeatherLayer';
+import { GroundStopLayer } from '../../layers/GroundStopLayer';
 import { fragmentShader as flirShader } from '../../filters/flir';
 import { fragmentShader as nightvisionShader } from '../../filters/nightvision';
 import { fragmentShader as crtShader } from '../../filters/crt';
@@ -23,6 +24,7 @@ export function Globe() {
     cameras: CameraLayer | null;
     historicalTrack: HistoricalTrackLayer | null;
     weather: WeatherLayer | null;
+    groundStops: GroundStopLayer | null;
   }>({
     flights: null,
     satellites: null,
@@ -30,6 +32,7 @@ export function Globe() {
     cameras: null,
     historicalTrack: null,
     weather: null,
+    groundStops: null,
   });
   const tilesetRef = useRef<Cesium.Cesium3DTileset | null>(null);
   const labelsLayerRef = useRef<Cesium.ImageryLayer | null>(null);
@@ -155,6 +158,18 @@ export function Globe() {
                 return;
               }
             }
+
+            if (entityType === 'groundStop') {
+              const data = (entity as any)._faaData;
+              if (data) {
+                setSelectedEntity({
+                  type: 'groundStop',
+                  id: `${data.airport}-${data.type}`,
+                  data,
+                });
+                return;
+              }
+            }
           }
         }
 
@@ -255,12 +270,16 @@ export function Globe() {
     const camLayer = new CameraLayer(viewer);
     camLayer.setOnCountUpdate((count) => setEntityCount('cameras', count));
 
+    const groundStopLayer = new GroundStopLayer(viewer);
+    groundStopLayer.setOnCountUpdate((count) => setEntityCount('groundStops', count));
+
     layersRef.current.flights = flightLayer;
     layersRef.current.satellites = satLayer;
     layersRef.current.earthquakes = quakeLayer;
     layersRef.current.cameras = camLayer;
     layersRef.current.historicalTrack = new HistoricalTrackLayer(viewer);
     layersRef.current.weather = new WeatherLayer(viewer);
+    layersRef.current.groundStops = groundStopLayer;
 
     viewerRef.current = viewer;
 
@@ -274,6 +293,7 @@ export function Globe() {
       layersRef.current.earthquakes?.stop();
       layersRef.current.cameras?.stop();
       layersRef.current.weather?.stop();
+      layersRef.current.groundStops?.stop();
       viewer.destroy();
     };
   }, []);
@@ -328,6 +348,16 @@ export function Globe() {
       l.weather?.stop();
     }
   }, [layers.weather]);
+
+  useEffect(() => {
+    const l = layersRef.current;
+    if (layers.groundStops) {
+      l.groundStops?.start();
+      setDataTimestamp('groundStops', Date.now());
+    } else {
+      l.groundStops?.stop();
+    }
+  }, [layers.groundStops]);
 
   // Labels overlay (Google 2D roadmap on 3D tiles)
   useEffect(() => {

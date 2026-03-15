@@ -119,6 +119,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/weather/, ''),
       },
+      '/api/faa': {
+        target: 'https://nasstatus.faa.gov',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/faa/, ''),
+      },
     },
   },
 })

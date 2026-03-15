@@ -11,6 +11,7 @@ const layerConfig: { key: keyof LayerState; label: string; color: string; shortc
   { key: 'cameras', label: 'Cameras', color: '#FF6B35', shortcut: '4' },
   { key: 'weather', label: 'Weather', color: '#64B5F6', shortcut: '5' },
   { key: 'labels', label: 'Labels', color: '#FFFFFF', shortcut: '6' },
+  { key: 'groundStops', label: 'Ground Stops', color: '#FF1744', shortcut: '7' },
 ];
 
 function useIsMobile() {

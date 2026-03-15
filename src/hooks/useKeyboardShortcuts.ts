@@ -41,6 +41,9 @@ export function useKeyboardShortcuts() {
         case '6':
           toggleLayer('labels');
           break;
+        case '7':
+          toggleLayer('groundStops');
+          break;
         case 'f':
         case 'F': {
           const idx = filterOrder.indexOf(activeFilter);
