@@ -283,6 +283,14 @@ app.all("/api/adsb/*", async (req, res) => {
   await cachedProxyRequest(targetUrl, req, res, {}, 10_000);
 });
 
+// FAA NASSTATUS (no auth, cached 2 min — data updates slowly)
+app.all("/api/faa/*", async (req, res) => {
+  const path = req.path.replace(/^\/api\/faa/, "");
+  const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  const targetUrl = `https://nasstatus.faa.gov${path}${qs}`;
+  await cachedProxyRequest(targetUrl, req, res, {}, 120_000);
+});
+
 // --- Tracked flights API endpoint ---
 
 const TRACKED_CALLSIGNS = ["N307EL", "N308EL", "N309EL"];
