@@ -48,27 +48,27 @@ export function Sidebar() {
     return groups;
   }, []);
 
-  const handleRegionChange = (value: string) => {
-    if (value === 'nearme') {
-      if (!navigator.geolocation) {
-        addNotification({ type: 'warning', title: 'Geolocation', message: 'Geolocation is not supported by your browser' });
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const loc = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-          setUserLocation(loc);
-          setFlightRegion('nearme');
-          setFlyToTarget({ lat: loc.lat, lon: loc.lon, alt: 150000 });
-          addNotification({ type: 'success', title: 'Near Me', message: 'Showing 50 closest aircraft' });
-        },
-        (err) => {
-          addNotification({ type: 'warning', title: 'Location Denied', message: err.message || 'Could not get your location' });
-        },
-        { enableHighAccuracy: false, timeout: 10000 },
-      );
+  const handleNearMe = () => {
+    if (!navigator.geolocation) {
+      addNotification({ type: 'warning', title: 'Geolocation', message: 'Geolocation is not supported by your browser' });
       return;
     }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+        setUserLocation(loc);
+        setFlightRegion('nearme');
+        setFlyToTarget({ lat: loc.lat, lon: loc.lon, alt: 150000 });
+        addNotification({ type: 'success', title: 'Near Me', message: 'Showing 50 closest aircraft' });
+      },
+      (err) => {
+        addNotification({ type: 'warning', title: 'Location Denied', message: err.message || 'Could not get your location' });
+      },
+      { enableHighAccuracy: false, timeout: 10000 },
+    );
+  };
+
+  const handleRegionChange = (value: string) => {
     setUserLocation(null);
     setFlightRegion(value);
   };
@@ -185,26 +185,43 @@ export function Sidebar() {
                     </div>
                   </button>
                   {key === 'flights' && layers.flights && (
-                    <select
-                      value={flightRegion}
-                      onChange={(e) => handleRegionChange(e.target.value)}
-                      className="mt-1.5 ml-5 w-[calc(100%-1.25rem)] text-xs rounded px-2 py-1 font-mono outline-none cursor-pointer"
-                      style={{
-                        background: 'rgba(0,229,255,0.08)',
-                        border: '1px solid rgba(0,229,255,0.3)',
-                        color: '#00E5FF',
-                      }}
-                    >
-                      {regionGroups.map((group) => (
-                        <optgroup key={group.label} label={group.label}>
-                          {group.regions.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.label}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
+                    <div className="mt-1.5 ml-5 w-[calc(100%-1.25rem)] flex gap-1.5">
+                      <select
+                        value={flightRegion === 'nearme' ? 'nearme' : flightRegion}
+                        onChange={(e) => handleRegionChange(e.target.value)}
+                        className="flex-1 min-w-0 text-xs rounded px-2 py-1 font-mono outline-none cursor-pointer"
+                        style={{
+                          background: 'rgba(0,229,255,0.08)',
+                          border: '1px solid rgba(0,229,255,0.3)',
+                          color: '#00E5FF',
+                        }}
+                      >
+                        {flightRegion === 'nearme' && (
+                          <option value="nearme">Near Me</option>
+                        )}
+                        {regionGroups.map((group) => (
+                          <optgroup key={group.label} label={group.label}>
+                            {group.regions.map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {r.label}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                      <button
+                        onClick={handleNearMe}
+                        title="Show 50 closest aircraft to your location"
+                        className="text-xs px-2 py-1 rounded font-mono shrink-0"
+                        style={{
+                          background: flightRegion === 'nearme' ? 'rgba(0,229,255,0.25)' : 'rgba(0,229,255,0.08)',
+                          border: '1px solid rgba(0,229,255,0.3)',
+                          color: '#00E5FF',
+                        }}
+                      >
+                        Near Me
+                      </button>
+                    </div>
                   )}
                 </div>
               );

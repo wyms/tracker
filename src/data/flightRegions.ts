@@ -10,7 +10,6 @@ export interface FlightRegion {
 export const FLIGHT_REGIONS: FlightRegion[] = [
   // Special
   { id: 'viewport', label: 'Viewport (camera)', group: 'Special', bbox: null },
-  { id: 'nearme', label: 'Near Me', group: 'Special', bbox: null },
   { id: 'world', label: 'World (all)', group: 'Special', bbox: null },
 
   // Continents
