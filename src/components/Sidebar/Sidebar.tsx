@@ -59,7 +59,7 @@ export function Sidebar() {
           const loc = { lat: pos.coords.latitude, lon: pos.coords.longitude };
           setUserLocation(loc);
           setFlightRegion('nearme');
-          setFlyToTarget({ lat: loc.lat, lon: loc.lon, alt: 5000 });
+          setFlyToTarget({ lat: loc.lat, lon: loc.lon, alt: 150000 });
           addNotification({ type: 'success', title: 'Near Me', message: 'Showing 50 closest aircraft' });
         },
         (err) => {
