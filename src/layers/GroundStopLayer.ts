@@ -66,14 +66,13 @@ export class GroundStopLayer {
       const entity = this.viewer.entities.add({
         id,
         name: `${prog.airport} – ${prog.type.replace(/_/g, ' ').toUpperCase()}`,
-        position: Cesium.Cartesian3.fromDegrees(prog.lon, prog.lat, 0),
+        position: Cesium.Cartesian3.fromDegrees(prog.lon, prog.lat, 100),
         billboard: {
           image: style.icon,
           scale: style.scale,
           color: Cesium.Color.fromCssColorString(style.color),
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
           horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         label: {
           text: prog.airport,
@@ -84,7 +83,6 @@ export class GroundStopLayer {
           outlineWidth: 2,
           verticalOrigin: Cesium.VerticalOrigin.TOP,
           pixelOffset: new Cesium.Cartesian2(0, 4),
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
           scale: 0.9,
         },
       });
