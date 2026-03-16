@@ -47,7 +47,6 @@ export class CameraLayer {
             color: Cesium.Color.fromCssColorString('#FF6B35'),
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
             horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
           },
         });
 

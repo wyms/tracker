@@ -102,7 +102,6 @@ export class EarthquakeLayer {
           outlineColor: color.withAlpha(0.8),
           outlineWidth: 2,
           height: 0,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
         },
       });
 
