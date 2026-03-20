@@ -46,9 +46,9 @@ export class FireLayer {
       );
     }
     await this.poll();
-    // Re-fetch every 10 minutes (FIRMS updates ~every 3 hours, but we poll more often
-    // so newly toggled-on layers get data promptly)
-    this.intervalId = window.setInterval(() => this.poll(), 600_000);
+    // 10 min for auth, 30 min for anon (FIRMS updates ~every 3 hours)
+    const interval = this.authenticated ? 600_000 : 1_800_000;
+    this.intervalId = window.setInterval(() => this.poll(), interval);
   }
 
   stop() {

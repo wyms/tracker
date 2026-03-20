@@ -31,7 +31,8 @@ export class GdeltLayer {
 
   async start() {
     await this.poll();
-    this.intervalId = window.setInterval(() => this.poll(), 600_000); // 10 min
+    const interval = this.authenticated ? 600_000 : 1_800_000; // 10 min auth, 30 min anon
+    this.intervalId = window.setInterval(() => this.poll(), interval);
   }
 
   stop() {

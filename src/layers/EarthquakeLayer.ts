@@ -48,7 +48,9 @@ export class EarthquakeLayer {
 
   async start() {
     await this.poll();
-    this.intervalId = window.setInterval(() => this.poll(), 60_000);
+    // 60s for auth, 5 min for anon (earthquake data changes slowly)
+    const interval = this.authenticated ? 60_000 : 300_000;
+    this.intervalId = window.setInterval(() => this.poll(), interval);
     this.startPulse();
   }
 

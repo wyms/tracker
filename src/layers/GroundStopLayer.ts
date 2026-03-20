@@ -32,7 +32,9 @@ export class GroundStopLayer {
 
   async start() {
     await this.poll();
-    this.intervalId = window.setInterval(() => this.poll(), POLL_INTERVAL);
+    // 2 min for auth, 5 min for anon
+    const interval = this.authenticated ? POLL_INTERVAL : 300_000;
+    this.intervalId = window.setInterval(() => this.poll(), interval);
   }
 
   stop() {

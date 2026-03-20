@@ -389,7 +389,7 @@ app.all("/api/firms/*", async (req, res) => {
     res.status(400).json({ error: "Invalid proxy target" });
     return;
   }
-  await cachedProxyRequest(targetUrl, req, res, {}, 600_000);
+  await cachedProxyRequest(targetUrl, req, res, {}, 3_600_000); // 1 hour cache — FIRMS updates ~3h
 });
 
 // FAA NASSTATUS (no auth, cached 2 min — data updates slowly)
