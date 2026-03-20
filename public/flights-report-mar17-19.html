@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="no-referrer">
+<title>Eli Lilly Fleet — Mar 17–19, 2026</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    background: #0a1628;
+    color: #c8d6e5;
+    line-height: 1.6;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+  h1 {
+    font-size: 1.5rem;
+    color: #00e5ff;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .subtitle { color: #5c6f85; font-size: 0.85rem; margin-bottom: 32px; }
+  h2 {
+    font-size: 1rem;
+    color: #00e5ff;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin: 32px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(0,229,255,0.15);
+  }
+  .aircraft-card {
+    background: rgba(13,27,42,0.95);
+    border: 1px solid rgba(0,229,255,0.2);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .aircraft-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .callsign {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #00e5ff;
+  }
+  .icao { color: #5c6f85; font-size: 0.8rem; }
+  .aircraft-type { color: #7a8ea0; font-size: 0.85rem; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .badge-active { background: rgba(0,229,255,0.15); color: #00e5ff; }
+  .badge-orange { background: rgba(255,171,64,0.15); color: #ffab40; }
+  .badge-purple { background: rgba(224,64,251,0.15); color: #e040fb; }
+  .badge-red { background: rgba(255,82,82,0.15); color: #ff5252; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    margin-top: 8px;
+  }
+  th {
+    text-align: left;
+    color: #5c6f85;
+    font-weight: normal;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.7rem;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(0,229,255,0.1);
+  }
+  td {
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  tr:hover td { background: rgba(0,229,255,0.03); }
+  .airport-code {
+    color: #ffab40;
+    font-weight: bold;
+  }
+  .airport-name { color: #7a8ea0; font-size: 0.75rem; }
+  .note {
+    background: rgba(0,229,255,0.06);
+    border-left: 3px solid rgba(0,229,255,0.4);
+    padding: 12px 16px;
+    margin: 12px 0;
+    font-size: 0.82rem;
+    color: #a0b4c8;
+    border-radius: 0 6px 6px 0;
+  }
+  .note strong { color: #00e5ff; }
+  .note-orange {
+    background: rgba(255,171,64,0.06);
+    border-left-color: #ffab40;
+  }
+  .note-orange strong { color: #ffab40; }
+  .note-purple {
+    background: rgba(224,64,251,0.06);
+    border-left-color: #e040fb;
+  }
+  .note-purple strong { color: #e040fb; }
+  .note-red {
+    background: rgba(255,82,82,0.06);
+    border-left-color: #ff5252;
+  }
+  .note-red strong { color: #ff5252; }
+  #map {
+    height: 500px;
+    border-radius: 8px;
+    border: 1px solid rgba(0,229,255,0.2);
+    margin: 16px 0;
+  }
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin: 8px 0 16px;
+    font-size: 0.78rem;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-line {
+    width: 24px;
+    height: 3px;
+    border-radius: 2px;
+  }
+  .duration { color: #5c6f85; }
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .summary-stat {
+    background: rgba(13,27,42,0.95);
+    border: 1px solid rgba(0,229,255,0.15);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+  .summary-stat .value {
+    font-size: 1.8rem;
+    font-weight: bold;
+    color: #00e5ff;
+  }
+  .summary-stat .label {
+    font-size: 0.75rem;
+    color: #5c6f85;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-top: 4px;
+  }
+  .footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(0,229,255,0.1);
+    color: #3a4a5c;
+    font-size: 0.72rem;
+    text-align: center;
+  }
+  .live-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(255,82,82,0.15);
+    color: #ff5252;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  @media (max-width: 640px) {
+    .container { padding: 16px 12px; }
+    h1 { font-size: 1.1rem; }
+    table { font-size: 0.75rem; }
+    th, td { padding: 6px 6px; }
+    #map { height: 300px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Eli Lilly Fleet &mdash; Weekly Activity</h1>
+  <p class="subtitle">Mar 17&ndash;19, 2026 &middot; Data from OpenSky Network &middot; Generated 2026-03-19</p>
+
+  <!-- Summary Stats -->
+  <div class="summary-grid">
+    <div class="summary-stat">
+      <div class="value">7</div>
+      <div class="label">Flight Legs</div>
+    </div>
+    <div class="summary-stat">
+      <div class="value">3</div>
+      <div class="label">Aircraft Active</div>
+    </div>
+    <div class="summary-stat">
+      <div class="value">7</div>
+      <div class="label">Airports Touched</div>
+    </div>
+    <div class="summary-stat">
+      <div class="value" style="color: #ff5252;">EKCH</div>
+      <div class="label">International &mdash; Copenhagen</div>
+    </div>
+  </div>
+
+  <!-- N307EL -->
+  <h2>N307EL &mdash; Gulfstream GVII-G500</h2>
+  <div class="aircraft-card">
+    <div class="aircraft-header">
+      <span class="callsign" style="color: #00e5ff;">N307EL</span>
+      <span class="icao">ICAO: A339C2</span>
+      <span class="aircraft-type">Gulfstream GVII-G500 (s/n 72045)</span>
+      <span class="badge badge-red">TRANSATLANTIC</span>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Departure</th><th>Arrival</th><th>Duration</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Mar 18</td>
+          <td><span class="airport-code" style="color: #00e5ff;">KIND</span> <span class="airport-name">Indianapolis</span></td>
+          <td><span class="airport-code" style="color: #ff5252;">EKCH</span> <span class="airport-name">Copenhagen, Denmark</span></td>
+          <td class="duration">~7h 14m</td>
+          <td class="airport-name"><span class="live-badge">INTL</span> Departed 4:13am ET</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note note-red">
+      <strong>Copenhagen &mdash; Novo Nordisk territory:</strong> N307EL crossed the Atlantic to Copenhagen Kastrup Airport (EKCH), the first international flight recorded for the Eli Lilly fleet in this tracking period. Copenhagen is the global headquarters of Novo Nordisk &mdash; Eli Lilly's primary competitor in the GLP-1/obesity drug market. The Lilly-Novo rivalry over semaglutide (Ozempic/Wegovy) vs. tirzepatide (Mounjaro/Zepbound) is the defining pharmaceutical battle of the decade. A direct flight to Copenhagen strongly suggests high-level executive meetings &mdash; potentially related to regulatory strategy, competitive intelligence, partnership discussions, or Lilly's European commercial operations.
+    </div>
+    <div class="note note-orange">
+      <strong>Departure timing:</strong> N307EL departed KIND at 04:13 ET (09:13 UTC) &mdash; the earliest departure of the day, consistent with a long-haul mission needing maximum European working hours upon arrival. The 7h 14m flight time and Gulfstream G500's 5,200 nm range make Indianapolis&ndash;Copenhagen a direct-capable route. Arrival at ~5:27pm local Copenhagen time (16:27 UTC) allows for an evening arrival with meetings the following day.
+    </div>
+  </div>
+
+  <!-- N308EL -->
+  <h2>N308EL &mdash; Gulfstream GVII-G500</h2>
+  <div class="aircraft-card">
+    <div class="aircraft-header">
+      <span class="callsign" style="color: #ffab40;">N308EL</span>
+      <span class="icao">ICAO: A33D79</span>
+      <span class="aircraft-type">Gulfstream GVII-G500</span>
+      <span class="badge badge-orange">3 flights</span>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Departure</th><th>Arrival</th><th>Duration</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Mar 17</td>
+          <td><span class="airport-code" style="color: #00e5ff;">KIND</span> <span class="airport-name">Indianapolis</span></td>
+          <td><span class="airport-code">KHPN</span> <span class="airport-name">Westchester County, NY</span></td>
+          <td class="duration">~1h 31m</td>
+          <td class="airport-name">Evening departure, 4:33pm ET</td>
+        </tr>
+        <tr>
+          <td>Mar 18</td>
+          <td><span class="airport-code" style="color: #00e5ff;">KIND</span> <span class="airport-name">Indianapolis</span></td>
+          <td><span class="airport-code" style="color: #ffab40;">KSFO</span> <span class="airport-name">San Francisco, CA</span></td>
+          <td class="duration">~3h 55m</td>
+          <td class="airport-name">Departed 6:42am ET</td>
+        </tr>
+        <tr>
+          <td>Mar 18</td>
+          <td><span class="airport-code" style="color: #ffab40;">KSFO</span> <span class="airport-name">San Francisco, CA</span></td>
+          <td><span class="airport-code" style="color: #00e5ff;">KIND</span> <span class="airport-name">Indianapolis</span></td>
+          <td class="duration">~3h 28m</td>
+          <td class="airport-name">Same-day return, departed 9:03am PT</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note note-orange">
+      <strong>Same-day San Francisco roundtrip:</strong> N308EL executed a rapid KIND&rarr;KSFO&rarr;KIND cycle on Mar 18 &mdash; departing Indianapolis at 6:42am ET, arriving SFO ~10:37am PT, then departing SFO at 9:03am PT and returning to KIND by ~3:31pm ET. The short turnaround in San Francisco (~1h 26m on the ground) suggests a brief meeting or passenger exchange, not an overnight visit. San Francisco&rsquo;s South San Francisco biotech corridor is the densest concentration of pharmaceutical and biotech companies in the world &mdash; home to Genentech (Roche), Amgen, Gilead, and hundreds of startups. Lilly has been actively pursuing partnerships and acquisitions in this space.
+    </div>
+    <div class="note">
+      <strong>Repositioning note:</strong> N308EL flew to KHPN (Westchester) on the evening of Mar 17 but was back at KIND by Mar 18 morning for the SFO trip. The KHPN&rarr;KIND return leg was either not captured in ADS-B data or occurred very early on Mar 18 before the SFO departure.
+    </div>
+  </div>
+
+  <!-- N309EL -->
+  <h2>N309EL &mdash; Gulfstream GVII-G500</h2>
+  <div class="aircraft-card">
+    <div class="aircraft-header">
+      <span class="callsign" style="color: #e040fb;">N309EL</span>
+      <span class="icao">ICAO: A34130</span>
+      <span class="aircraft-type">Gulfstream GVII-G500 (s/n 72135)</span>
+      <span class="badge badge-purple">3 flights</span>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Departure</th><th>Arrival</th><th>Duration</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Mar 17</td>
+          <td><span class="airport-code">KPHL</span> <span class="airport-name">Philadelphia</span></td>
+          <td><span class="airport-code" style="color: #00e5ff;">KIND</span> <span class="airport-name">Indianapolis</span></td>
+          <td class="duration">~1h 18m</td>
+          <td class="airport-name">Early morning return (8:52pm ET prev day)</td>
+        </tr>
+        <tr>
+          <td>Mar 17</td>
+          <td><span class="airport-code" style="color: #00e5ff;">KIND</span> <span class="airport-name">Indianapolis</span></td>
+          <td><span class="airport-code">KEWR</span> <span class="airport-name">Newark Liberty, NJ</span></td>
+          <td class="duration">~1h 29m</td>
+          <td class="airport-name">Evening, departed 3:55pm ET</td>
+        </tr>
+        <tr>
+          <td>Mar 18</td>
+          <td><span class="airport-code" style="color: #00e5ff;">KIND</span> <span class="airport-name">Indianapolis</span></td>
+          <td><span class="airport-code" style="color: #e040fb;">KSAV</span> <span class="airport-name">Savannah, GA</span></td>
+          <td class="duration">~1h 13m</td>
+          <td class="airport-name">Departed 8:35am ET</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note note-purple">
+      <strong>Savannah, Georgia (KSAV):</strong> First recorded visit to Savannah by the Eli Lilly fleet. Savannah/Hilton Head International serves the broader coastal Georgia and South Carolina region. Eli Lilly announced a $3.7B manufacturing facility in Lebanon, Indiana in 2023 and has been aggressively scouting manufacturing sites across the southeastern U.S. Savannah&rsquo;s port infrastructure, available land, and state incentive programs make it a candidate for logistics or manufacturing expansion. Alternatively, this could be related to Lilly&rsquo;s existing relationships with contract manufacturers in the region.
+    </div>
+    <div class="note">
+      <strong>Northeast shuttle continues:</strong> N309EL maintained its northeast corridor pattern &mdash; returning from KPHL to KIND early Mar 17, then heading back to KEWR the same evening. This is the fourth consecutive report showing N309EL working the KIND&ndash;NJ/NY/PHL corridor, reinforcing the pattern of regular engagement in the pharmaceutical-dense northeast.
+    </div>
+  </div>
+
+  <!-- Patterns & Analysis -->
+  <h2>Patterns &amp; Analysis</h2>
+  <div class="aircraft-card">
+    <div class="note note-red">
+      <strong>Full fleet deployment &mdash; Mar 18:</strong> For the first time in the tracking period, all three Eli Lilly aircraft deployed from KIND on the same day to three different destinations spanning two continents:
+      <br>&bull; N307EL &rarr; EKCH (Copenhagen, Denmark) at 04:13 ET
+      <br>&bull; N308EL &rarr; KSFO (San Francisco, CA) at 06:42 ET
+      <br>&bull; N309EL &rarr; KSAV (Savannah, GA) at 08:35 ET
+      <br>This coordinated dispersal pattern &mdash; Europe, West Coast, and Southeast &mdash; suggests a major day for Eli Lilly operations requiring simultaneous executive presence across multiple theaters. The staggered departure times (each ~2 hours apart) may indicate crew/FBO scheduling at KIND or passengers arriving at different times.
+    </div>
+    <div class="note note-red">
+      <strong>International escalation:</strong> The KIND&rarr;EKCH transatlantic flight is a significant escalation from the domestic northeast corridor and regional patterns observed in previous reports. The Copenhagen destination &mdash; home to Novo Nordisk, EMA regulatory proximity, and Nordic pharma infrastructure &mdash; carries outsized strategic significance. This could signal upcoming announcements in the GLP-1/obesity competitive landscape, European regulatory submissions, or high-level partnership/M&amp;A discussions.
+    </div>
+    <div class="note note-orange">
+      <strong>Simultaneous NYC departures (Mar 17):</strong> Continuing the pattern from the previous report, N309EL and N308EL both headed to the NYC metro area on the evening of Mar 17 &mdash; N309EL to KEWR at 3:55pm ET and N308EL to KHPN at 4:33pm ET (38 minutes apart). Both aircraft then returned to KIND in time for the Mar 18 full-fleet deployment, suggesting coordinated passenger pickup for the next day&rsquo;s missions.
+    </div>
+    <div class="note">
+      <strong>N308EL SFO turnaround:</strong> The same-day SFO roundtrip (~1h 26m ground time) is unusually brief even for corporate aviation. This pattern is consistent with a passenger exchange &mdash; dropping off and/or picking up executives &mdash; rather than a meeting destination. The timing could indicate a connection to a commercial flight or a brief airport-side meeting.
+    </div>
+  </div>
+
+  <!-- Flight Tracks Map -->
+  <h2>Flight Tracks</h2>
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-line" style="background: #00e5ff;"></div>
+      <span>N307EL (cyan)</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-line" style="background: #ffab40;"></div>
+      <span>N308EL (orange)</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-line" style="background: #e040fb;"></div>
+      <span>N309EL (purple)</span>
+    </div>
+  </div>
+  <div id="map"></div>
+
+  <!-- Key Airports -->
+  <h2>Key Airports</h2>
+  <table>
+    <thead><tr><th>Code</th><th>Airport</th><th>Location</th><th>Significance</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="airport-code" style="color: #00e5ff;">KIND</span></td>
+        <td>Indianapolis International</td>
+        <td>Indianapolis, IN</td>
+        <td class="airport-name">Eli Lilly global HQ &mdash; home base for all three aircraft</td>
+      </tr>
+      <tr>
+        <td><span class="airport-code" style="color: #ff5252;">EKCH</span></td>
+        <td>Copenhagen Kastrup Airport</td>
+        <td>Copenhagen, Denmark</td>
+        <td class="airport-name">Novo Nordisk HQ region &mdash; first international flight in tracking period</td>
+      </tr>
+      <tr>
+        <td><span class="airport-code" style="color: #ffab40;">KSFO</span></td>
+        <td>San Francisco International</td>
+        <td>San Francisco, CA</td>
+        <td class="airport-name">Global biotech epicenter &mdash; same-day roundtrip, brief ground time</td>
+      </tr>
+      <tr>
+        <td><span class="airport-code" style="color: #e040fb;">KSAV</span></td>
+        <td>Savannah/Hilton Head Intl</td>
+        <td>Savannah, GA</td>
+        <td class="airport-name">First fleet visit &mdash; potential manufacturing or logistics site scouting</td>
+      </tr>
+      <tr>
+        <td><span class="airport-code">KHPN</span></td>
+        <td>Westchester County Airport</td>
+        <td>White Plains, NY</td>
+        <td class="airport-name">NYC-area corporate aviation hub &mdash; recurring N308EL destination</td>
+      </tr>
+      <tr>
+        <td><span class="airport-code">KEWR</span></td>
+        <td>Newark Liberty International</td>
+        <td>Newark, NJ</td>
+        <td class="airport-name">NYC metro &mdash; N309EL northeast corridor shuttle</td>
+      </tr>
+      <tr>
+        <td><span class="airport-code">KPHL</span></td>
+        <td>Philadelphia International</td>
+        <td>Philadelphia, PA</td>
+        <td class="airport-name">Pharma corridor &mdash; N309EL morning return to KIND</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="footer">
+    Data sourced from OpenSky Network &middot; Updated March 19, 2026 &middot; Geospatial Command Center
+  </div>
+</div>
+
+<script>
+// --- Map ---
+const map = L.map('map', {
+  center: [48, -40],
+  zoom: 3,
+  zoomControl: true,
+});
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO',
+  maxZoom: 18,
+}).addTo(map);
+
+// Airport coordinates
+const airports = {
+  KIND: [39.7173, -86.2944],
+  EKCH: [55.6180, 12.6560],
+  KSFO: [37.6213, -122.3790],
+  KSAV: [32.1276, -81.2021],
+  KHPN: [41.0670, -73.7076],
+  KEWR: [40.6895, -74.1745],
+  KPHL: [39.8721, -75.2411],
+};
+
+// --- Track data from OpenSky ---
+
+// N307EL: KIND -> EKCH (Mar 18) — TRANSATLANTIC
+const n307_kind_ekch = [[39.7063,-86.2969],[39.6506,-86.3728],[39.6415,-86.3796],[39.6299,-86.381],[39.6189,-86.3764],[39.6089,-86.3665],[39.5397,-86.26],[39.5356,-86.2408],[39.5357,-86.2198],[39.5567,-86.1567],[39.7193,-85.7079],[39.8746,-85.2629],[39.8925,-85.1362],[40.1621,-84.4846],[44.2741,-74.293],[58.1743,2.3507],[56.5412,8.8261],[56.2564,9.8304],[55.9635,10.8207],[55.9414,10.9536],[55.8833,12.0856],[55.8048,12.7318],[55.7925,12.776],[55.7618,12.8339],[55.7522,12.8401],[55.7424,12.8399],[55.7336,12.8341],[55.6455,12.6986]];
+L.polyline(n307_kind_ekch, { color: '#00e5ff', weight: 3, opacity: 0.9 }).addTo(map)
+  .bindPopup('<b>N307EL</b><br>Mar 18: KIND &rarr; EKCH<br>~7h 14m &mdash; Indianapolis to Copenhagen');
+
+// N308EL: KIND -> KSFO (Mar 18)
+const n308_kind_ksfo = [[39.7073,-86.2955],[39.6632,-86.3607],[39.6515,-86.4122],[39.6419,-86.8909],[39.6144,-88.0254],[39.5031,-89.9661],[39.3708,-94.0765],[39.2976,-94.6444],[39.2889,-94.9343],[39.2919,-95.1144],[39.2986,-95.6304],[39.3011,-96.1579],[38.5004,-102.0087],[38.3808,-103.4805],[38.3015,-104.5296],[38.3846,-105.8007],[38.4021,-106.0981],[38.4383,-106.7645],[38.4537,-107.3625],[38.4494,-108.8039],[38.4156,-110.7461],[37.8243,-119.3832],[37.6907,-120.4773],[37.5655,-121.5002],[37.4914,-121.8851],[37.5756,-122.2373],[37.6206,-122.3739]];
+L.polyline(n308_kind_ksfo, { color: '#ffab40', weight: 3, opacity: 0.9 }).addTo(map)
+  .bindPopup('<b>N308EL</b><br>Mar 18: KIND &rarr; KSFO<br>~3h 55m &mdash; Indianapolis to San Francisco');
+
+// N308EL: KSFO -> KIND (Mar 18, return)
+const n308_ksfo_kind = [[37.6163,-122.3745],[37.6386,-122.3585],[37.681,-122.2834],[37.7285,-122.2055],[38.0109,-121.9488],[38.4118,-121.5799],[38.7086,-121.1164],[39.1715,-120.342],[41.9879,-110.0812],[41.4941,-99.9148],[40.178,-91.0308],[39.8542,-89.7294],[39.842,-88.6768],[39.8406,-87.5912],[39.8465,-86.7096],[39.7918,-86.3776],[39.7933,-86.3604],[39.8021,-86.3412],[39.877,-86.2421],[39.8808,-86.2251],[39.8796,-86.21],[39.8564,-86.1702],[39.8476,-86.1612],[39.8332,-86.1568],[39.8228,-86.1584],[39.8153,-86.1635],[39.727,-86.2704]];
+L.polyline(n308_ksfo_kind, { color: '#ffab40', weight: 2.5, opacity: 0.7, dashArray: '8,6' }).addTo(map)
+  .bindPopup('<b>N308EL</b><br>Mar 18: KSFO &rarr; KIND<br>~3h 28m &mdash; Return to Indianapolis');
+
+// N309EL: KIND -> KSAV (Mar 18)
+const n309_kind_ksav = [[39.7087,-86.2938],[39.7009,-86.3039],[39.6827,-86.3179],[39.6637,-86.327],[39.6429,-86.3275],[39.4507,-86.3195],[39.2315,-86.302],[38.9223,-86.2677],[38.6217,-86.2336],[38.5764,-86.2155],[38.5425,-86.1885],[38.3834,-85.9683],[37.9263,-85.3252],[37.6691,-85.0891],[35.767,-83.5535],[35.2127,-82.9728],[33.9858,-81.725],[33.896,-81.6608],[33.5108,-81.5122],[33.0937,-81.3544],[32.7594,-81.2292],[32.6993,-81.2174],[32.5726,-81.2159],[32.4535,-81.2927],[32.2077,-81.4306],[32.1503,-81.4198],[32.1292,-81.3792],[32.1291,-81.2557]];
+L.polyline(n309_kind_ksav, { color: '#e040fb', weight: 3, opacity: 0.9 }).addTo(map)
+  .bindPopup('<b>N309EL</b><br>Mar 18: KIND &rarr; KSAV<br>~1h 13m &mdash; Indianapolis to Savannah');
+
+// N309EL: KPHL -> KIND (Mar 17)
+const n309_kphl_kind = [[39.8635,-75.2646],[39.8597,-75.3521],[39.8634,-75.4029],[39.9165,-75.6786],[39.9148,-75.8373],[39.9098,-76.0648],[39.9133,-76.3146],[39.9519,-76.8234],[39.9932,-77.4229],[39.998,-77.4952],[40.011,-77.6948],[40.0651,-78.5142],[40.0963,-79.0162],[40.1024,-79.118],[40.1057,-79.1733],[40.1127,-79.2947],[40.1246,-79.5054],[40.1441,-79.8646],[40.2106,-81.299],[40.2255,-81.689],[40.248,-82.3547],[40.2651,-82.9616],[40.2735,-84.4622],[40.25,-85.0862],[40.2342,-85.3886],[40.1824,-85.5217],[40.03,-85.8676],[39.7933,-86.1856],[39.7229,-86.2755]];
+L.polyline(n309_kphl_kind, { color: '#e040fb', weight: 2.5, opacity: 0.7, dashArray: '8,6' }).addTo(map)
+  .bindPopup('<b>N309EL</b><br>Mar 17: KPHL &rarr; KIND<br>~1h 18m &mdash; Return from Philadelphia');
+
+// N309EL: KIND -> KEWR (Mar 17)
+const n309_kind_kewr = [[39.7105,-86.2913],[39.6803,-86.3129],[39.6649,-86.3135],[39.6497,-86.3024],[39.641,-86.2825],[39.6403,-86.2468],[39.7422,-85.8304],[39.9111,-84.7191],[39.9457,-84.2439],[40.2501,-83.857],[41.9166,-80.2514],[41.9243,-80.1051],[41.481,-77.7458],[41.143,-76.0504],[40.8332,-74.9452],[40.7363,-74.8083],[40.7106,-74.7017],[40.715,-74.6764],[40.9178,-74.3325],[40.9294,-74.2465],[40.9045,-74.1426],[40.8372,-74.0757],[40.7622,-74.0706],[40.7136,-74.1],[40.7069,-74.1078],[40.7,-74.1288],[40.7013,-74.1572]];
+L.polyline(n309_kind_kewr, { color: '#e040fb', weight: 2.5, opacity: 0.8 }).addTo(map)
+  .bindPopup('<b>N309EL</b><br>Mar 17: KIND &rarr; KEWR<br>~1h 29m &mdash; Indianapolis to Newark');
+
+// N308EL: KIND -> KHPN (Mar 17)
+const n308_kind_khpn = [[39.7086,-86.2939],[39.6356,-86.3781],[39.6191,-86.3803],[39.604,-86.3743],[39.5822,-86.3482],[39.5663,-86.3014],[39.5676,-86.2659],[39.6753,-85.9196],[39.9317,-85.325],[40.476,-84.0286],[42.2303,-77.6783],[42.5006,-76.3754],[42.4957,-76.2208],[42.2029,-75.052],[41.7981,-74.081],[41.7405,-73.9851],[41.4501,-73.8864],[41.1095,-73.5872],[41.0657,-73.5488],[41.0188,-73.5431],[41.0061,-73.55],[40.9978,-73.5603],[40.9774,-73.6145],[40.9774,-73.6264],[40.9806,-73.6371],[40.9865,-73.645],[41.0566,-73.6988]];
+L.polyline(n308_kind_khpn, { color: '#ffab40', weight: 2.5, opacity: 0.8, dashArray: '8,6' }).addTo(map)
+  .bindPopup('<b>N308EL</b><br>Mar 17: KIND &rarr; KHPN<br>~1h 31m &mdash; Indianapolis to Westchester');
+
+// --- Airport markers ---
+const airportMeta = {
+  KIND: { name: 'Indianapolis Intl — Eli Lilly HQ', color: '#00e5ff', radius: 7 },
+  EKCH: { name: 'Copenhagen Kastrup — Novo Nordisk territory', color: '#ff5252', radius: 7 },
+  KSFO: { name: 'San Francisco Intl — Biotech corridor', color: '#ffab40', radius: 6 },
+  KSAV: { name: 'Savannah/Hilton Head Intl', color: '#e040fb', radius: 6 },
+  KHPN: { name: 'Westchester County, NY', color: '#ffffff', radius: 5 },
+  KEWR: { name: 'Newark Liberty, NJ', color: '#ffffff', radius: 5 },
+  KPHL: { name: 'Philadelphia Intl', color: '#e040fb', radius: 5 },
+};
+
+Object.entries(airports).forEach(([code, coords]) => {
+  const meta = airportMeta[code] || { name: code, color: '#ffffff', radius: 4 };
+  const isHighlight = code === 'KIND' || code === 'EKCH';
+  L.circleMarker(coords, {
+    radius: meta.radius,
+    color: meta.color,
+    fillColor: isHighlight ? meta.color : '#0a1628',
+    fillOpacity: isHighlight ? 0.8 : 1,
+    weight: 2,
+  }).bindPopup('<b>' + code + '</b><br>' + meta.name).addTo(map);
+});
+
+// Fit map to all points
+const allPoints = [
+  ...n307_kind_ekch, ...n308_kind_ksfo, ...n308_ksfo_kind,
+  ...n309_kind_ksav, ...n309_kphl_kind, ...n309_kind_kewr, ...n308_kind_khpn,
+  ...Object.values(airports),
+];
+map.fitBounds(L.latLngBounds(allPoints).pad(0.06));
+</script>
+</body>
+</html>
