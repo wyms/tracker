@@ -23,6 +23,8 @@ export function InfoPanel() {
         return <FireInfo data={selectedEntity.data} />;
       case 'gdeltEvent':
         return <GdeltEventInfo data={selectedEntity.data} />;
+      case 'eonetEvent':
+        return <EonetEventInfo data={selectedEntity.data} />;
       case 'radiation':
         return <RadiationInfo data={selectedEntity.data} />;
       default:
@@ -38,6 +40,7 @@ export function InfoPanel() {
     groundStop: 'FAA ALERT',
     fire: 'FIRE DETECTION',
     gdeltEvent: 'GDELT EVENT',
+    eonetEvent: 'NATURAL EVENT',
     radiation: 'RADIATION',
   }[selectedEntity.type];
 
@@ -49,6 +52,7 @@ export function InfoPanel() {
     groundStop: '#FF1744',
     fire: '#FF6600',
     gdeltEvent: '#E040FB',
+    eonetEvent: '#FF4500',
     radiation: '#76FF03',
   }[selectedEntity.type];
 
@@ -336,6 +340,36 @@ function RadiationInfo({ data }: { data: Record<string, unknown> }) {
       <InfoRow label="Lon" value={Number(data.longitude).toFixed(4)} />
       <InfoRow label="Captured" value={data.captured_at ? new Date(data.captured_at as string).toLocaleString() : 'N/A'} />
       <InfoRow label="Device" value={data.device_id != null ? String(data.device_id) : 'N/A'} />
+    </div>
+  );
+}
+
+function EonetEventInfo({ data }: { data: Record<string, unknown> }) {
+  return (
+    <div className="space-y-0.5">
+      <div className="text-sm font-bold text-white mb-2">
+        {String(data.title || 'Natural Event')}
+      </div>
+      <InfoRow label="Category" value={data.category as string} />
+      <InfoRow label="Lat" value={Number(data.latitude).toFixed(4)} />
+      <InfoRow label="Lon" value={Number(data.longitude).toFixed(4)} />
+      <InfoRow label="Date" value={data.date ? new Date(data.date as string).toLocaleString() : 'N/A'} />
+      <InfoRow label="Source" value={data.source as string} />
+      {typeof data.sourceUrl === 'string' && data.sourceUrl && (
+        <a
+          href={data.sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block mt-3 text-xs text-center py-1.5 rounded"
+          style={{
+            color: '#FF4500',
+            background: 'rgba(255,69,0,0.1)',
+            border: '1px solid rgba(255,69,0,0.3)',
+          }}
+        >
+          View Source &rarr;
+        </a>
+      )}
     </div>
   );
 }

@@ -15,6 +15,7 @@ const layerConfig: { key: keyof LayerState; label: string; color: string; shortc
   { key: 'fires', label: 'Fires', color: '#FF6600', shortcut: '8' },
   { key: 'gdelt', label: 'GDELT Events', color: '#E040FB', shortcut: '9' },
   { key: 'radiation', label: 'Radiation', color: '#76FF03', shortcut: '0' },
+  { key: 'eonet', label: 'Natural Events', color: '#FF4500', shortcut: '' },
 ];
 
 function useIsMobile() {

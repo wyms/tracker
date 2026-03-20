@@ -12,6 +12,7 @@ import { GroundStopLayer } from '../../layers/GroundStopLayer';
 import { FireLayer } from '../../layers/FireLayer';
 import { GdeltLayer } from '../../layers/GdeltLayer';
 import { RadiationLayer } from '../../layers/RadiationLayer';
+import { EonetLayer } from '../../layers/EonetLayer';
 import { fragmentShader as flirShader } from '../../filters/flir';
 import { fragmentShader as nightvisionShader } from '../../filters/nightvision';
 import { fragmentShader as crtShader } from '../../filters/crt';
@@ -31,6 +32,7 @@ export function Globe() {
     fires: FireLayer | null;
     gdelt: GdeltLayer | null;
     radiation: RadiationLayer | null;
+    eonet: EonetLayer | null;
   }>({
     flights: null,
     satellites: null,
@@ -42,6 +44,7 @@ export function Globe() {
     fires: null,
     gdelt: null,
     radiation: null,
+    eonet: null,
   });
   const tilesetRef = useRef<Cesium.Cesium3DTileset | null>(null);
   const labelsLayerRef = useRef<Cesium.ImageryLayer | null>(null);
@@ -164,6 +167,26 @@ export function Globe() {
                   type: 'camera',
                   id: data.camera_id,
                   data,
+                });
+                return;
+              }
+            }
+
+            if (entityType === 'eonetEvent') {
+              const data = (entity as any)._eonetData;
+              if (data) {
+                setSelectedEntity({
+                  type: 'eonetEvent',
+                  id: data.id,
+                  data: {
+                    title: data.title,
+                    category: data.category,
+                    latitude: data.latitude,
+                    longitude: data.longitude,
+                    date: data.date,
+                    source: data.source,
+                    sourceUrl: data.sourceUrl,
+                  },
                 });
                 return;
               }
@@ -362,6 +385,10 @@ export function Globe() {
     radiationLayer.setOnCountUpdate((count) => setEntityCount('radiation', count));
     layersRef.current.radiation = radiationLayer;
 
+    const eonetLayer = new EonetLayer(viewer);
+    eonetLayer.setOnCountUpdate((count) => setEntityCount('eonet', count));
+    layersRef.current.eonet = eonetLayer;
+
     viewerRef.current = viewer;
 
     // Trigger initial render
@@ -378,6 +405,7 @@ export function Globe() {
       layersRef.current.fires?.stop();
       layersRef.current.gdelt?.stop();
       layersRef.current.radiation?.stop();
+      layersRef.current.eonet?.stop();
       viewer.destroy();
     };
   }, []);
@@ -472,6 +500,16 @@ export function Globe() {
       l.radiation?.stop();
     }
   }, [layers.radiation]);
+
+  useEffect(() => {
+    const l = layersRef.current;
+    if (layers.eonet) {
+      l.eonet?.start();
+      setDataTimestamp('eonet', Date.now());
+    } else {
+      l.eonet?.stop();
+    }
+  }, [layers.eonet]);
 
   // Labels overlay (Google 2D roadmap on 3D tiles)
   useEffect(() => {
