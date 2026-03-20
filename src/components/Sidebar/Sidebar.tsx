@@ -13,6 +13,8 @@ const layerConfig: { key: keyof LayerState; label: string; color: string; shortc
   { key: 'labels', label: 'Labels', color: '#FFFFFF', shortcut: '6' },
   { key: 'groundStops', label: 'Ground Stops', color: '#FF1744', shortcut: '7' },
   { key: 'fires', label: 'Fires', color: '#FF6600', shortcut: '8' },
+  { key: 'gdelt', label: 'GDELT Events', color: '#E040FB', shortcut: '9' },
+  { key: 'radiation', label: 'Radiation', color: '#76FF03', shortcut: '0' },
 ];
 
 function useIsMobile() {

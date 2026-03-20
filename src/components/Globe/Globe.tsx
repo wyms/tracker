@@ -10,6 +10,8 @@ import { HistoricalTrackLayer } from '../../layers/HistoricalTrackLayer';
 import { WeatherLayer } from '../../layers/WeatherLayer';
 import { GroundStopLayer } from '../../layers/GroundStopLayer';
 import { FireLayer } from '../../layers/FireLayer';
+import { GdeltLayer } from '../../layers/GdeltLayer';
+import { RadiationLayer } from '../../layers/RadiationLayer';
 import { fragmentShader as flirShader } from '../../filters/flir';
 import { fragmentShader as nightvisionShader } from '../../filters/nightvision';
 import { fragmentShader as crtShader } from '../../filters/crt';
@@ -27,6 +29,8 @@ export function Globe() {
     weather: WeatherLayer | null;
     groundStops: GroundStopLayer | null;
     fires: FireLayer | null;
+    gdelt: GdeltLayer | null;
+    radiation: RadiationLayer | null;
   }>({
     flights: null,
     satellites: null,
@@ -36,6 +40,8 @@ export function Globe() {
     weather: null,
     groundStops: null,
     fires: null,
+    gdelt: null,
+    radiation: null,
   });
   const tilesetRef = useRef<Cesium.Cesium3DTileset | null>(null);
   const labelsLayerRef = useRef<Cesium.ImageryLayer | null>(null);
@@ -163,6 +169,26 @@ export function Globe() {
               }
             }
 
+            if (entityType === 'gdeltEvent') {
+              const data = (entity as any)._gdeltData;
+              if (data) {
+                setSelectedEntity({
+                  type: 'gdeltEvent',
+                  id: `gdelt-${data.latitude}-${data.longitude}`,
+                  data: {
+                    name: data.name,
+                    url: data.url,
+                    latitude: data.latitude,
+                    longitude: data.longitude,
+                    tone: data.tonez,
+                    domain: data.domain,
+                    shareimage: data.shareimage,
+                  },
+                });
+                return;
+              }
+            }
+
             if (entityType === 'groundStop') {
               const data = (entity as any)._faaData;
               if (data) {
@@ -176,7 +202,24 @@ export function Globe() {
             }
           }
 
-          // Handle point primitive (fires — same pattern as satellites)
+          // Handle point primitives (fires, radiation — same pattern as satellites)
+          if (picked.primitive && picked.primitive._radiationData) {
+            const data = picked.primitive._radiationData;
+            setSelectedEntity({
+              type: 'radiation',
+              id: `rad-${data.id}`,
+              data: {
+                latitude: data.latitude,
+                longitude: data.longitude,
+                value: data.value,
+                unit: data.unit,
+                captured_at: data.captured_at,
+                device_id: data.device_id,
+              },
+            });
+            return;
+          }
+
           if (picked.primitive && picked.primitive._fireData) {
             const data = picked.primitive._fireData;
             setSelectedEntity({
@@ -311,6 +354,14 @@ export function Globe() {
     fireLayer.setOnCountUpdate((count) => setEntityCount('fires', count));
     layersRef.current.fires = fireLayer;
 
+    const gdeltLayer = new GdeltLayer(viewer);
+    gdeltLayer.setOnCountUpdate((count) => setEntityCount('gdelt', count));
+    layersRef.current.gdelt = gdeltLayer;
+
+    const radiationLayer = new RadiationLayer(viewer);
+    radiationLayer.setOnCountUpdate((count) => setEntityCount('radiation', count));
+    layersRef.current.radiation = radiationLayer;
+
     viewerRef.current = viewer;
 
     // Trigger initial render
@@ -325,6 +376,8 @@ export function Globe() {
       layersRef.current.weather?.stop();
       layersRef.current.groundStops?.stop();
       layersRef.current.fires?.stop();
+      layersRef.current.gdelt?.stop();
+      layersRef.current.radiation?.stop();
       viewer.destroy();
     };
   }, []);
@@ -399,6 +452,26 @@ export function Globe() {
       l.fires?.stop();
     }
   }, [layers.fires]);
+
+  useEffect(() => {
+    const l = layersRef.current;
+    if (layers.gdelt) {
+      l.gdelt?.start();
+      setDataTimestamp('gdelt', Date.now());
+    } else {
+      l.gdelt?.stop();
+    }
+  }, [layers.gdelt]);
+
+  useEffect(() => {
+    const l = layersRef.current;
+    if (layers.radiation) {
+      l.radiation?.start();
+      setDataTimestamp('radiation', Date.now());
+    } else {
+      l.radiation?.stop();
+    }
+  }, [layers.radiation]);
 
   // Labels overlay (Google 2D roadmap on 3D tiles)
   useEffect(() => {

@@ -21,6 +21,10 @@ export function InfoPanel() {
         return <GroundStopInfo data={selectedEntity.data} />;
       case 'fire':
         return <FireInfo data={selectedEntity.data} />;
+      case 'gdeltEvent':
+        return <GdeltEventInfo data={selectedEntity.data} />;
+      case 'radiation':
+        return <RadiationInfo data={selectedEntity.data} />;
       default:
         return null;
     }
@@ -33,6 +37,8 @@ export function InfoPanel() {
     camera: 'CAMERA',
     groundStop: 'FAA ALERT',
     fire: 'FIRE DETECTION',
+    gdeltEvent: 'GDELT EVENT',
+    radiation: 'RADIATION',
   }[selectedEntity.type];
 
   const typeColor = {
@@ -42,6 +48,8 @@ export function InfoPanel() {
     camera: '#FF6B35',
     groundStop: '#FF1744',
     fire: '#FF6600',
+    gdeltEvent: '#E040FB',
+    radiation: '#76FF03',
   }[selectedEntity.type];
 
   return (
@@ -273,6 +281,61 @@ function FireInfo({ data }: { data: Record<string, unknown> }) {
       <InfoRow label="Satellite" value={data.satellite as string} />
       <InfoRow label="Time" value={time} />
       <InfoRow label="Day/Night" value={data.daynight === 'D' ? 'Day' : data.daynight === 'N' ? 'Night' : String(data.daynight)} />
+    </div>
+  );
+}
+
+function GdeltEventInfo({ data }: { data: Record<string, unknown> }) {
+  const tone = Number(data.tone) || 0;
+  const toneLabel = tone < -2 ? 'Negative' : tone > 2 ? 'Positive' : 'Neutral';
+  return (
+    <div className="space-y-0.5">
+      <div className="text-sm font-bold text-white mb-2 line-clamp-3 leading-snug">
+        {String(data.name || 'GDELT Event')}
+      </div>
+      <InfoRow label="Source" value={data.domain as string} />
+      <InfoRow label="Tone" value={`${tone.toFixed(1)} (${toneLabel})`} />
+      <InfoRow label="Lat" value={Number(data.latitude).toFixed(4)} />
+      <InfoRow label="Lon" value={Number(data.longitude).toFixed(4)} />
+      {typeof data.url === 'string' && data.url && (
+        <a
+          href={data.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block mt-3 text-xs text-center py-1.5 rounded"
+          style={{
+            color: '#E040FB',
+            background: 'rgba(224,64,251,0.1)',
+            border: '1px solid rgba(224,64,251,0.3)',
+          }}
+        >
+          Read Article &rarr;
+        </a>
+      )}
+    </div>
+  );
+}
+
+function RadiationInfo({ data }: { data: Record<string, unknown> }) {
+  const value = Number(data.value) || 0;
+  const unit = String(data.unit || 'cpm');
+  let levelLabel = 'Normal';
+  if (value > 1000) levelLabel = 'Dangerous';
+  else if (value > 300) levelLabel = 'Elevated';
+  else if (value > 100) levelLabel = 'Above Average';
+  else if (value > 50) levelLabel = 'Slightly Elevated';
+
+  return (
+    <div className="space-y-0.5">
+      <div className="text-sm font-bold text-white mb-2">
+        Radiation Reading
+      </div>
+      <InfoRow label="Level" value={`${value.toFixed(1)} ${unit}`} />
+      <InfoRow label="Status" value={levelLabel} />
+      <InfoRow label="Lat" value={Number(data.latitude).toFixed(4)} />
+      <InfoRow label="Lon" value={Number(data.longitude).toFixed(4)} />
+      <InfoRow label="Captured" value={data.captured_at ? new Date(data.captured_at as string).toLocaleString() : 'N/A'} />
+      <InfoRow label="Device" value={data.device_id != null ? String(data.device_id) : 'N/A'} />
     </div>
   );
 }

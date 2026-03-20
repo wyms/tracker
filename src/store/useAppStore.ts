@@ -27,6 +27,8 @@ export interface LayerState {
   labels: boolean;
   groundStops: boolean;
   fires: boolean;
+  gdelt: boolean;
+  radiation: boolean;
 }
 
 export interface DataTimestamp {
@@ -37,10 +39,12 @@ export interface DataTimestamp {
   weather: number | null;
   groundStops: number | null;
   fires: number | null;
+  gdelt: number | null;
+  radiation: number | null;
 }
 
 export interface SelectedEntity {
-  type: 'aircraft' | 'satellite' | 'earthquake' | 'camera' | 'groundStop' | 'fire';
+  type: 'aircraft' | 'satellite' | 'earthquake' | 'camera' | 'groundStop' | 'fire' | 'gdeltEvent' | 'radiation';
   id: string;
   data: Record<string, unknown>;
 }
@@ -64,6 +68,8 @@ export interface EntityCounts {
   cameras: number;
   groundStops: number;
   fires: number;
+  gdelt: number;
+  radiation: number;
 }
 
 export interface Bookmark {
@@ -213,6 +219,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     labels: false,
     groundStops: true,
     fires: false,
+    gdelt: false,
+    radiation: false,
   },
   toggleLayer: (layer) =>
     set((state) => ({
@@ -236,6 +244,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     weather: null,
     groundStops: null,
     fires: null,
+    gdelt: null,
+    radiation: null,
   },
   setDataTimestamp: (layer, time) =>
     set((state) => ({
@@ -243,7 +253,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
 
   // Entity counts
-  entityCounts: { flights: 0, satellites: 0, earthquakes: 0, cameras: 0, groundStops: 0, fires: 0 },
+  entityCounts: { flights: 0, satellites: 0, earthquakes: 0, cameras: 0, groundStops: 0, fires: 0, gdelt: 0, radiation: 0 },
   setEntityCount: (layer, count) =>
     set((state) => ({
       entityCounts: { ...state.entityCounts, [layer]: count },
