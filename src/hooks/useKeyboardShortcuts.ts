@@ -44,6 +44,15 @@ export function useKeyboardShortcuts() {
         case '7':
           toggleLayer('groundStops');
           break;
+        case '8':
+          toggleLayer('fires');
+          break;
+        case '9':
+          toggleLayer('gdelt');
+          break;
+        case '0':
+          toggleLayer('radiation');
+          break;
         case 'f':
         case 'F': {
           const idx = filterOrder.indexOf(activeFilter);
