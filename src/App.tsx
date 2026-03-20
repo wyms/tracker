@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Component, useEffect, type ReactNode, type ErrorInfo } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './services/firebase';
 import { useAppStore } from './store/useAppStore';
@@ -18,7 +18,55 @@ import { FlyToInput } from './components/FlyToInput/FlyToInput';
 import { MeasureTool } from './components/MeasureTool/MeasureTool';
 import { NotificationToast } from './components/NotificationToast/NotificationToast';
 import { TrackedFlightsPanel } from './components/TrackedFlightsPanel/TrackedFlightsPanel';
+import { MarketTicker } from './components/MarketTicker/MarketTicker';
+import { SanctionsPanel } from './components/SanctionsPanel/SanctionsPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('ErrorBoundary caught:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100vh',
+          background: '#0D1B2A',
+          color: '#c8d6e5',
+          fontFamily: 'monospace',
+        }}>
+          <h1 style={{ color: '#00E5FF', marginBottom: '16px' }}>Something went wrong</h1>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              padding: '8px 24px',
+              background: 'rgba(0,229,255,0.15)',
+              border: '1px solid rgba(0,229,255,0.4)',
+              borderRadius: '8px',
+              color: '#00E5FF',
+              cursor: 'pointer',
+              fontSize: '14px',
+            }}
+          >
+            Reload
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function App() {
   useKeyboardShortcuts();
@@ -67,24 +115,28 @@ function App() {
   }, [setApiUsage]);
 
   return (
-    <div className="w-screen h-screen overflow-hidden relative" style={{ background: '#0D1B2A' }}>
-      <Globe />
-      <Clock />
-      <FilterBar />
-      <FlyToInput />
-      <Sidebar />
-      <BookmarkPanel />
-      <EarthquakePanel />
-      <SearchPanel />
-      <HUD />
-      <InfoPanel />
-      <StatsPanel />
-      <Toolbar />
-      <MeasureTool />
-      <NotificationToast />
-      <TrackedFlightsPanel />
-      <StatusBar />
-    </div>
+    <ErrorBoundary>
+      <div className="w-screen h-screen overflow-hidden relative" style={{ background: '#0D1B2A' }}>
+        <Globe />
+        <Clock />
+        <FilterBar />
+        <FlyToInput />
+        <Sidebar />
+        <BookmarkPanel />
+        <EarthquakePanel />
+        <SearchPanel />
+        <HUD />
+        <InfoPanel />
+        <StatsPanel />
+        <Toolbar />
+        <MeasureTool />
+        <NotificationToast />
+        <TrackedFlightsPanel />
+        <MarketTicker />
+        <SanctionsPanel />
+        <StatusBar />
+      </div>
+    </ErrorBoundary>
   );
 }
 
