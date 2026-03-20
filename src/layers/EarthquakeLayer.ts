@@ -24,6 +24,7 @@ export class EarthquakeLayer {
   private onCountUpdate: ((count: number) => void) | null = null;
   private onNewQuake: ((mag: number, place: string) => void) | null = null;
   private onDataUpdate: ((quakes: EarthquakeFeature[]) => void) | null = null;
+  private authenticated = false;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -39,6 +40,10 @@ export class EarthquakeLayer {
 
   setOnDataUpdate(cb: (quakes: EarthquakeFeature[]) => void) {
     this.onDataUpdate = cb;
+  }
+
+  setAuthenticated(authenticated: boolean) {
+    this.authenticated = authenticated;
   }
 
   async start() {
@@ -68,10 +73,16 @@ export class EarthquakeLayer {
   }
 
   private updateEntities(quakes: EarthquakeFeature[]) {
+    // Cap to 50 for unauthenticated users (sorted by magnitude descending)
+    let cappedQuakes = quakes;
+    if (!this.authenticated && quakes.length > 50) {
+      cappedQuakes = [...quakes].sort((a, b) => (b.properties.mag ?? 0) - (a.properties.mag ?? 0)).slice(0, 50);
+    }
+
     const incomingIds = new Set<string>();
     const prevIds = new Set(this.entities.keys());
 
-    for (const quake of quakes) {
+    for (const quake of cappedQuakes) {
       const id = `quake-${quake.id}`;
       incomingIds.add(id);
 
@@ -126,7 +137,7 @@ export class EarthquakeLayer {
     }
 
     this.onCountUpdate?.(this.entities.size);
-    this.onDataUpdate?.(quakes);
+    this.onDataUpdate?.(cappedQuakes);
   }
 
   private startPulse() {

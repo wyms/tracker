@@ -31,6 +31,7 @@ export class EonetLayer {
   private entities: Map<string, Cesium.Entity> = new Map();
   private intervalId: number | null = null;
   private onCountUpdate: ((count: number) => void) | null = null;
+  private authenticated = false;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -38,6 +39,10 @@ export class EonetLayer {
 
   setOnCountUpdate(cb: (count: number) => void) {
     this.onCountUpdate = cb;
+  }
+
+  setAuthenticated(authenticated: boolean) {
+    this.authenticated = authenticated;
   }
 
   async start() {
@@ -65,7 +70,9 @@ export class EonetLayer {
   private updateEntities(events: EonetEvent[]) {
     this.clearAll();
 
-    for (const ev of events) {
+    const capped = !this.authenticated && events.length > 50 ? events.slice(0, 50) : events;
+
+    for (const ev of capped) {
       const id = `eonet-${ev.id}`;
       const style = getCategoryStyle(ev.category);
 
@@ -98,3 +105,4 @@ export class EonetLayer {
     this.entities.clear();
   }
 }
+

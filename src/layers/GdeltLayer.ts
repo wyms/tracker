@@ -15,6 +15,7 @@ export class GdeltLayer {
   private entities: Map<string, Cesium.Entity> = new Map();
   private intervalId: number | null = null;
   private onCountUpdate: ((count: number) => void) | null = null;
+  private authenticated = false;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -22,6 +23,10 @@ export class GdeltLayer {
 
   setOnCountUpdate(cb: (count: number) => void) {
     this.onCountUpdate = cb;
+  }
+
+  setAuthenticated(authenticated: boolean) {
+    this.authenticated = authenticated;
   }
 
   async start() {
@@ -50,8 +55,10 @@ export class GdeltLayer {
     // Clear previous entities (GDELT doesn't have stable IDs across polls)
     this.clearAll();
 
-    for (let i = 0; i < events.length; i++) {
-      const ev = events[i];
+    const capped = !this.authenticated && events.length > 50 ? events.slice(0, 50) : events;
+
+    for (let i = 0; i < capped.length; i++) {
+      const ev = capped[i];
       const id = `gdelt-${i}-${ev.latitude}-${ev.longitude}`;
       const color = toneToColor(ev.tonez);
 

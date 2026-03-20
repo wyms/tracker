@@ -14,6 +14,11 @@ const ANON_AIRCRAFT_CAP = 50;
 const NEAR_ME_CAP = 50;
 const NEAR_ME_BBOX_DEGREES = 3; // ±3 degrees (~330km) around user
 
+/** Wrap longitude to [-180, 180] */
+function normalizeLon(lon: number): number {
+  return ((lon + 540) % 360) - 180;
+}
+
 interface TrailEntry {
   positions: Cesium.Cartesian3[];
   entity: Cesium.Entity | null;
@@ -57,8 +62,8 @@ export class FlightLayer {
       this.setBboxOverride({
         south: center.lat - NEAR_ME_BBOX_DEGREES,
         north: center.lat + NEAR_ME_BBOX_DEGREES,
-        west: center.lon - NEAR_ME_BBOX_DEGREES,
-        east: center.lon + NEAR_ME_BBOX_DEGREES,
+        west: normalizeLon(center.lon - NEAR_ME_BBOX_DEGREES),
+        east: normalizeLon(center.lon + NEAR_ME_BBOX_DEGREES),
       });
     } else {
       this.setBboxOverride(null);
@@ -191,7 +196,8 @@ export class FlightLayer {
 
     // Clamp bbox to MAX_BBOX_SPAN degrees to avoid huge responses when zoomed out
     const latSpan = north - south;
-    const lonSpan = east - west;
+    // Handle anti-meridian: west > east means the box crosses ±180
+    const lonSpan = east >= west ? east - west : (360 - west + east);
 
     if (latSpan > MAX_BBOX_SPAN || lonSpan > MAX_BBOX_SPAN) {
       // Center the clamped box on the camera target
@@ -201,8 +207,8 @@ export class FlightLayer {
       const halfSpan = MAX_BBOX_SPAN / 2;
       south = Math.max(centerLat - halfSpan, -90);
       north = Math.min(centerLat + halfSpan, 90);
-      west = Math.max(centerLon - halfSpan, -180);
-      east = Math.min(centerLon + halfSpan, 180);
+      west = normalizeLon(centerLon - halfSpan);
+      east = normalizeLon(centerLon + halfSpan);
     }
 
     return { south, west, north, east };

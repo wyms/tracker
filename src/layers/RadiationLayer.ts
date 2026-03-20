@@ -23,6 +23,7 @@ export class RadiationLayer {
   private pointCollection: Cesium.PointPrimitiveCollection | null = null;
   private intervalId: number | null = null;
   private onCountUpdate: ((count: number) => void) | null = null;
+  private authenticated = false;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -30,6 +31,10 @@ export class RadiationLayer {
 
   setOnCountUpdate(cb: (count: number) => void) {
     this.onCountUpdate = cb;
+  }
+
+  setAuthenticated(authenticated: boolean) {
+    this.authenticated = authenticated;
   }
 
   async start() {
@@ -63,7 +68,9 @@ export class RadiationLayer {
     if (!this.pointCollection) return;
     this.pointCollection.removeAll();
 
-    for (const r of readings) {
+    const capped = !this.authenticated && readings.length > 50 ? readings.slice(0, 50) : readings;
+
+    for (const r of capped) {
       const point = this.pointCollection.add({
         position: Cesium.Cartesian3.fromDegrees(r.longitude, r.latitude, 0),
         pixelSize: cpmToSize(r.value),
@@ -72,7 +79,7 @@ export class RadiationLayer {
       (point as any)._radiationData = r;
     }
 
-    this.onCountUpdate?.(readings.length);
+    this.onCountUpdate?.(capped.length);
     this.viewer.scene.requestRender();
   }
 

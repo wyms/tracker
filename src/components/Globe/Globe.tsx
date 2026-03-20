@@ -594,7 +594,16 @@ export function Globe() {
   // Sync auth state to FlightLayer
   const user = useAppStore((s) => s.user);
   useEffect(() => {
-    layersRef.current.flights?.setAuthenticated(!!user);
+    const isAuth = !!user;
+    layersRef.current.flights?.setAuthenticated(isAuth);
+    layersRef.current.satellites?.setAuthenticated(isAuth);
+    layersRef.current.earthquakes?.setAuthenticated(isAuth);
+    layersRef.current.cameras?.setAuthenticated(isAuth);
+    layersRef.current.groundStops?.setAuthenticated(isAuth);
+    layersRef.current.fires?.setAuthenticated(isAuth);
+    layersRef.current.gdelt?.setAuthenticated(isAuth);
+    layersRef.current.radiation?.setAuthenticated(isAuth);
+    layersRef.current.eonet?.setAuthenticated(isAuth);
   }, [user]);
 
   // Sync flight region to FlightLayer

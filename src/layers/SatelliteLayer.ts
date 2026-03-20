@@ -32,6 +32,7 @@ export class SatelliteLayer {
   private orbitEntity: Cesium.Entity | null = null;
   private loaded = false;
   private onCountUpdate: ((count: number) => void) | null = null;
+  private authenticated = false;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -41,6 +42,10 @@ export class SatelliteLayer {
 
   setOnCountUpdate(cb: (count: number) => void) {
     this.onCountUpdate = cb;
+  }
+
+  setAuthenticated(authenticated: boolean) {
+    this.authenticated = authenticated;
   }
 
   async start() {
@@ -79,7 +84,9 @@ export class SatelliteLayer {
         }
       }
 
-      for (const gp of unique) {
+      const capped = !this.authenticated && unique.length > 50 ? unique.slice(0, 50) : unique;
+
+      for (const gp of capped) {
         try {
           const satrec = twoline2satrec(gp.TLE_LINE1, gp.TLE_LINE2);
           const { color } = classifySatellite(gp.OBJECT_NAME);

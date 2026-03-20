@@ -16,6 +16,7 @@ export class GroundStopLayer {
   private entities: Map<string, Cesium.Entity> = new Map();
   private intervalId: number | null = null;
   private onCountUpdate: ((count: number) => void) | null = null;
+  private authenticated = false;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -23,6 +24,10 @@ export class GroundStopLayer {
 
   setOnCountUpdate(cb: (count: number) => void) {
     this.onCountUpdate = cb;
+  }
+
+  setAuthenticated(authenticated: boolean) {
+    this.authenticated = authenticated;
   }
 
   async start() {
@@ -48,9 +53,10 @@ export class GroundStopLayer {
   }
 
   private updateEntities(programs: FAAProgram[]) {
+    const capped = !this.authenticated && programs.length > 50 ? programs.slice(0, 50) : programs;
     const incomingIds = new Set<string>();
 
-    for (const prog of programs) {
+    for (const prog of capped) {
       const id = `faa-${prog.airport}-${prog.type}`;
       incomingIds.add(id);
 

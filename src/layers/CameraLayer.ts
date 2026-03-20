@@ -7,6 +7,7 @@ export class CameraLayer {
   private entities: Map<string, Cesium.Entity> = new Map();
   private loaded = false;
   private onCountUpdate: ((count: number) => void) | null = null;
+  private authenticated = false;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -14,6 +15,10 @@ export class CameraLayer {
 
   setOnCountUpdate(cb: (count: number) => void) {
     this.onCountUpdate = cb;
+  }
+
+  setAuthenticated(authenticated: boolean) {
+    this.authenticated = authenticated;
   }
 
   async start() {
@@ -30,7 +35,8 @@ export class CameraLayer {
 
   private async loadData(): Promise<number | null> {
     try {
-      const cameras = await fetchCameras();
+      let cameras = await fetchCameras();
+      if (!this.authenticated && cameras.length > 50) cameras = cameras.slice(0, 50);
       for (const cam of cameras) {
         const lat = parseFloat(cam.location?.latitude);
         const lon = parseFloat(cam.location?.longitude);

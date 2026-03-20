@@ -21,6 +21,7 @@ export class FireLayer {
   private intervalId: number | null = null;
   private onCountUpdate: ((count: number) => void) | null = null;
   private onDataUpdate: ((hotspots: FireHotspot[]) => void) | null = null;
+  private authenticated = false;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -32,6 +33,10 @@ export class FireLayer {
 
   setOnDataUpdate(cb: (hotspots: FireHotspot[]) => void) {
     this.onDataUpdate = cb;
+  }
+
+  setAuthenticated(authenticated: boolean) {
+    this.authenticated = authenticated;
   }
 
   async start() {
@@ -67,7 +72,13 @@ export class FireLayer {
     if (!this.pointCollection) return;
     this.pointCollection.removeAll();
 
-    for (const h of hotspots) {
+    // Cap to 50 for unauthenticated users (top FRP)
+    let capped = hotspots;
+    if (!this.authenticated && hotspots.length > 50) {
+      capped = [...hotspots].sort((a, b) => b.frp - a.frp).slice(0, 50);
+    }
+
+    for (const h of capped) {
       const point = this.pointCollection.add({
         position: Cesium.Cartesian3.fromDegrees(h.longitude, h.latitude, 0),
         pixelSize: frpToSize(h.frp),
@@ -76,8 +87,8 @@ export class FireLayer {
       (point as any)._fireData = h;
     }
 
-    this.onCountUpdate?.(hotspots.length);
-    this.onDataUpdate?.(hotspots);
+    this.onCountUpdate?.(capped.length);
+    this.onDataUpdate?.(capped);
     this.viewer.scene.requestRender();
   }
 
