@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { AircraftState, HistoricalFlight, FlightTrack } from '../services/opensky';
 import type { EarthquakeFeature } from '../services/usgs';
+import type { FireHotspot } from '../services/firms';
 
 export type FilterMode = 'normal' | 'flir' | 'nightvision' | 'crt';
 
@@ -187,6 +188,9 @@ interface AppState {
   // Earthquake list
   earthquakeList: EarthquakeFeature[];
   setEarthquakeList: (list: EarthquakeFeature[]) => void;
+
+  fireList: FireHotspot[];
+  setFireList: (list: FireHotspot[]) => void;
 
   // Auth
   user: AppUser | null;
@@ -401,6 +405,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Earthquake list
   earthquakeList: [],
   setEarthquakeList: (list) => set({ earthquakeList: list }),
+
+  fireList: [],
+  setFireList: (list) => set({ fireList: list }),
 
   // Auth
   user: null,

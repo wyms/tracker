@@ -11,9 +11,9 @@ export interface FireHotspot {
 }
 
 // NASA FIRMS open data — VIIRS (Suomi NPP) active fire detections, last 24 hours
-// No API key required. CORS supported.
-const FIRMS_URL =
-  'https://firms.modaps.eosdis.nasa.gov/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv';
+// Proxied through Firebase function to avoid CORS issues
+const FIRMS_PATH = '/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv';
+const FIRMS_URL = `/api/firms${FIRMS_PATH}`;
 
 export async function fetchFireHotspots(): Promise<FireHotspot[]> {
   const response = await fetch(FIRMS_URL);

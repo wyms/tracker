@@ -375,6 +375,7 @@ export function Globe() {
 
     const fireLayer = new FireLayer(viewer);
     fireLayer.setOnCountUpdate((count) => setEntityCount('fires', count));
+    fireLayer.setOnDataUpdate((hotspots) => useAppStore.getState().setFireList(hotspots));
     layersRef.current.fires = fireLayer;
 
     const gdeltLayer = new GdeltLayer(viewer);

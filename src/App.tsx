@@ -18,6 +18,7 @@ import { FlyToInput } from './components/FlyToInput/FlyToInput';
 import { MeasureTool } from './components/MeasureTool/MeasureTool';
 import { NotificationToast } from './components/NotificationToast/NotificationToast';
 import { TrackedFlightsPanel } from './components/TrackedFlightsPanel/TrackedFlightsPanel';
+import { FiresPanel } from './components/FiresPanel/FiresPanel';
 import { MarketTicker } from './components/MarketTicker/MarketTicker';
 import { SanctionsPanel } from './components/SanctionsPanel/SanctionsPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -124,6 +125,7 @@ function App() {
         <Sidebar />
         <BookmarkPanel />
         <EarthquakePanel />
+        <FiresPanel />
         <SearchPanel />
         <HUD />
         <InfoPanel />

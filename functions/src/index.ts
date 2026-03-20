@@ -11,7 +11,19 @@ const OPENSKY_CLIENT_ID = defineSecret("OPENSKY_CLIENT_ID");
 const OPENSKY_CLIENT_SECRET = defineSecret("OPENSKY_CLIENT_SECRET");
 
 const app = express();
-app.use(cors({ origin: true }));
+const ALLOWED_ORIGINS = [
+  'https://trackerofthings.web.app',
+  'https://trackerofthings.firebaseapp.com',
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin) || /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS not allowed'));
+    }
+  },
+}));
 
 // --- OpenSky OAuth2 token cache (server-side) ---
 
@@ -61,21 +73,64 @@ async function getOpenSkyToken(): Promise<string | null> {
   }
 }
 
-// --- Daily API call counter ---
+// --- Daily API call counter (hybrid: in-memory + Firestore sync) ---
 
 const DAILY_LIMIT = 4_000;
+const SYNC_INTERVAL = 60_000;
 
 let apiCallCounter = { date: '', count: 0 };
+let lastFirestoreSync = 0;
+
+async function loadApiCounter() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const doc = await db.doc('api-metrics/opensky-daily').get();
+    if (doc.exists) {
+      const data = doc.data()!;
+      if (data.date === today) {
+        apiCallCounter = { date: today, count: data.count || 0 };
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load API counter from Firestore:', err);
+  }
+}
+
+async function syncApiCounter() {
+  const now = Date.now();
+  if (now - lastFirestoreSync < SYNC_INTERVAL) return;
+  lastFirestoreSync = now;
+  try {
+    await db.doc('api-metrics/opensky-daily').set({
+      date: apiCallCounter.date,
+      count: apiCallCounter.count,
+    }, { merge: true });
+  } catch (err) {
+    console.error('Failed to sync API counter to Firestore:', err);
+  }
+}
+
+let counterLoaded = false;
+
+function ensureCounterLoaded() {
+  if (!counterLoaded) {
+    counterLoaded = true;
+    void loadApiCounter();
+  }
+}
 
 function trackApiCall() {
+  ensureCounterLoaded();
   const today = new Date().toISOString().slice(0, 10);
   if (apiCallCounter.date !== today) {
     apiCallCounter = { date: today, count: 0 };
   }
   apiCallCounter.count++;
+  void syncApiCounter();
 }
 
 function getApiUsage() {
+  ensureCounterLoaded();
   const today = new Date().toISOString().slice(0, 10);
   if (apiCallCounter.date !== today) {
     apiCallCounter = { date: today, count: 0 };
@@ -223,6 +278,19 @@ async function cachedProxyRequest(
 // Periodically clean expired cache entries
 setInterval(cleanCache, 30_000);
 
+// --- URL validation helpers ---
+
+const OPENSKY_PATH_PREFIXES = ['/api/states/', '/api/flights/', '/api/tracks/'];
+
+function validateProxyTarget(targetUrl: string, expectedOrigin: string): boolean {
+  try {
+    const parsed = new URL(targetUrl);
+    return parsed.origin === expectedOrigin;
+  } catch {
+    return false;
+  }
+}
+
 // --- Routes ---
 
 // API usage endpoint
@@ -231,8 +299,21 @@ app.get("/api/usage", (_req, res) => {
 });
 
 // OpenSky API (authenticated + cached with adaptive TTL)
-app.all("/api/opensky/*", async (req, res) => {
+app.get("/api/opensky/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/opensky/, "/api");
+
+  if (!OPENSKY_PATH_PREFIXES.some((p) => path.startsWith(p))) {
+    res.status(400).json({ error: "Invalid OpenSky API path" });
+    return;
+  }
+
+  // Enforce daily quota
+  const usage = getApiUsage();
+  if (usage.remaining <= 0) {
+    res.status(429).json({ error: "Daily OpenSky API limit reached", ...usage });
+    return;
+  }
+
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://opensky-network.org${path}${qs}`;
 
@@ -256,6 +337,10 @@ app.all("/api/celestrak/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/celestrak/, "");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://celestrak.org${path}${qs}`;
+  if (!validateProxyTarget(targetUrl, "https://celestrak.org")) {
+    res.status(400).json({ error: "Invalid proxy target" });
+    return;
+  }
   await cachedProxyRequest(targetUrl, req, res, {}, 60_000);
 });
 
@@ -264,6 +349,10 @@ app.all("/api/usgs/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/usgs/, "");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://earthquake.usgs.gov${path}${qs}`;
+  if (!validateProxyTarget(targetUrl, "https://earthquake.usgs.gov")) {
+    res.status(400).json({ error: "Invalid proxy target" });
+    return;
+  }
   await cachedProxyRequest(targetUrl, req, res, {}, 60_000);
 });
 
@@ -272,6 +361,10 @@ app.all("/api/austin/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/austin/, "");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://data.austintexas.gov${path}${qs}`;
+  if (!validateProxyTarget(targetUrl, "https://data.austintexas.gov")) {
+    res.status(400).json({ error: "Invalid proxy target" });
+    return;
+  }
   await cachedProxyRequest(targetUrl, req, res, {}, 60_000);
 });
 
@@ -280,7 +373,23 @@ app.all("/api/adsb/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/adsb/, "");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://opendata.adsb.fi${path}${qs}`;
+  if (!validateProxyTarget(targetUrl, "https://opendata.adsb.fi")) {
+    res.status(400).json({ error: "Invalid proxy target" });
+    return;
+  }
   await cachedProxyRequest(targetUrl, req, res, {}, 10_000);
+});
+
+// NASA FIRMS fire data (no auth, cached 10 min — data updates ~3 hours)
+app.all("/api/firms/*", async (req, res) => {
+  const path = req.path.replace(/^\/api\/firms/, "");
+  const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  const targetUrl = `https://firms.modaps.eosdis.nasa.gov${path}${qs}`;
+  if (!validateProxyTarget(targetUrl, "https://firms.modaps.eosdis.nasa.gov")) {
+    res.status(400).json({ error: "Invalid proxy target" });
+    return;
+  }
+  await cachedProxyRequest(targetUrl, req, res, {}, 600_000);
 });
 
 // FAA NASSTATUS (no auth, cached 2 min — data updates slowly)
@@ -288,6 +397,10 @@ app.all("/api/faa/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/faa/, "");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://nasstatus.faa.gov${path}${qs}`;
+  if (!validateProxyTarget(targetUrl, "https://nasstatus.faa.gov")) {
+    res.status(400).json({ error: "Invalid proxy target" });
+    return;
+  }
   await cachedProxyRequest(targetUrl, req, res, {}, 120_000);
 });
 
@@ -372,9 +485,12 @@ export const trackFlights = onSchedule(
     const now = Date.now();
 
     for (const sv of matches) {
-      const doc = db.collection("tracked-flights").doc();
+      const callsign = (sv[1] as string).trim();
+      const interval = Math.floor(now / (30 * 60 * 1000));
+      const docId = `${callsign}-${interval}`;
+      const doc = db.collection("tracked-flights").doc(docId);
       batch.set(doc, {
-        callsign: (sv[1] as string).trim(),
+        callsign,
         icao24: sv[0] as string,
         origin_country: sv[2] as string,
         longitude: sv[5] as number | null,
@@ -386,7 +502,7 @@ export const trackFlights = onSchedule(
         vertical_rate: sv[11] as number | null,
         geo_altitude: sv[13] as number | null,
         timestamp: now,
-      });
+      }, { merge: true });
     }
 
     if (matches.length > 0) {

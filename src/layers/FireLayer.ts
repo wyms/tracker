@@ -20,6 +20,7 @@ export class FireLayer {
   private pointCollection: Cesium.PointPrimitiveCollection | null = null;
   private intervalId: number | null = null;
   private onCountUpdate: ((count: number) => void) | null = null;
+  private onDataUpdate: ((hotspots: FireHotspot[]) => void) | null = null;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -27,6 +28,10 @@ export class FireLayer {
 
   setOnCountUpdate(cb: (count: number) => void) {
     this.onCountUpdate = cb;
+  }
+
+  setOnDataUpdate(cb: (hotspots: FireHotspot[]) => void) {
+    this.onDataUpdate = cb;
   }
 
   async start() {
@@ -72,6 +77,7 @@ export class FireLayer {
     }
 
     this.onCountUpdate?.(hotspots.length);
+    this.onDataUpdate?.(hotspots);
     this.viewer.scene.requestRender();
   }
 
