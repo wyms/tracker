@@ -85,9 +85,12 @@ function App() {
           displayName: firebaseUser.displayName,
           photoURL: firebaseUser.photoURL,
         });
-        // Auto-enable flights layer on sign-in
+        // Auto-enable core layers on sign-in
         const { layers, toggleLayer } = useAppStore.getState();
         if (!layers.flights) toggleLayer('flights');
+        if (!layers.satellites) toggleLayer('satellites');
+        if (!layers.cameras) toggleLayer('cameras');
+        if (!layers.groundStops) toggleLayer('groundStops');
       } else {
         setUser(null);
         setApiUsage(null);

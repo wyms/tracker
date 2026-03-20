@@ -218,13 +218,13 @@ let notificationCounter = 0;
 
 export const useAppStore = create<AppState>((set, get) => ({
   layers: {
-    flights: true,
-    satellites: true,
+    flights: false,
+    satellites: false,
     earthquakes: true,
-    cameras: true,
+    cameras: false,
     weather: false,
     labels: false,
-    groundStops: true,
+    groundStops: false,
     fires: false,
     gdelt: false,
     radiation: false,
