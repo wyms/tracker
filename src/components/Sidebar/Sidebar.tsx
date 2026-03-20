@@ -12,6 +12,7 @@ const layerConfig: { key: keyof LayerState; label: string; color: string; shortc
   { key: 'weather', label: 'Weather', color: '#64B5F6', shortcut: '5' },
   { key: 'labels', label: 'Labels', color: '#FFFFFF', shortcut: '6' },
   { key: 'groundStops', label: 'Ground Stops', color: '#FF1744', shortcut: '7' },
+  { key: 'fires', label: 'Fires', color: '#FF6600', shortcut: '8' },
 ];
 
 function useIsMobile() {
@@ -49,6 +50,21 @@ export function Sidebar() {
   }, []);
 
   const handleNearMe = () => {
+    if (!user) {
+      if (auth && googleProvider) {
+        signInWithPopup(auth, googleProvider).catch((err) => {
+          console.error('Google sign-in failed:', err);
+          addNotification({
+            type: 'warning',
+            title: 'Sign-in Failed',
+            message: err.code === 'auth/popup-blocked'
+              ? 'Popup was blocked. Allow popups and try again.'
+              : err.message || 'Could not sign in with Google',
+          });
+        });
+      }
+      return;
+    }
     if (!navigator.geolocation) {
       addNotification({ type: 'warning', title: 'Geolocation', message: 'Geolocation is not supported by your browser' });
       return;
@@ -71,6 +87,14 @@ export function Sidebar() {
   const handleRegionChange = (value: string) => {
     setUserLocation(null);
     setFlightRegion(value);
+    const region = FLIGHT_REGIONS.find((r) => r.id === value);
+    if (region?.bbox) {
+      const lat = (region.bbox.south + region.bbox.north) / 2;
+      const lon = (region.bbox.west + region.bbox.east) / 2;
+      const span = Math.max(region.bbox.north - region.bbox.south, region.bbox.east - region.bbox.west);
+      const alt = span * 80000;
+      setFlyToTarget({ lat, lon, alt });
+    }
   };
 
   const handleToggle = (key: keyof LayerState) => {
@@ -211,15 +235,17 @@ export function Sidebar() {
                       </select>
                       <button
                         onClick={handleNearMe}
-                        title="Show 50 closest aircraft to your location"
+                        title={user ? 'Show 50 closest aircraft to your location' : 'Sign in to use Near Me'}
                         className="text-xs px-2 py-1 rounded font-mono shrink-0"
                         style={{
-                          background: flightRegion === 'nearme' ? 'rgba(0,229,255,0.25)' : 'rgba(0,229,255,0.08)',
-                          border: '1px solid rgba(0,229,255,0.3)',
-                          color: '#00E5FF',
+                          background: !user
+                            ? 'rgba(255,235,59,0.1)'
+                            : flightRegion === 'nearme' ? 'rgba(0,229,255,0.25)' : 'rgba(0,229,255,0.08)',
+                          border: `1px solid ${!user ? 'rgba(255,235,59,0.3)' : 'rgba(0,229,255,0.3)'}`,
+                          color: !user ? '#FFEB3B' : '#00E5FF',
                         }}
                       >
-                        Near Me
+                        {user ? 'Near Me' : '🔒 Near Me'}
                       </button>
                     </div>
                   )}

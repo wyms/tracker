@@ -9,6 +9,7 @@ import { CameraLayer } from '../../layers/CameraLayer';
 import { HistoricalTrackLayer } from '../../layers/HistoricalTrackLayer';
 import { WeatherLayer } from '../../layers/WeatherLayer';
 import { GroundStopLayer } from '../../layers/GroundStopLayer';
+import { FireLayer } from '../../layers/FireLayer';
 import { fragmentShader as flirShader } from '../../filters/flir';
 import { fragmentShader as nightvisionShader } from '../../filters/nightvision';
 import { fragmentShader as crtShader } from '../../filters/crt';
@@ -25,6 +26,7 @@ export function Globe() {
     historicalTrack: HistoricalTrackLayer | null;
     weather: WeatherLayer | null;
     groundStops: GroundStopLayer | null;
+    fires: FireLayer | null;
   }>({
     flights: null,
     satellites: null,
@@ -33,11 +35,13 @@ export function Globe() {
     historicalTrack: null,
     weather: null,
     groundStops: null,
+    fires: null,
   });
   const tilesetRef = useRef<Cesium.Cesium3DTileset | null>(null);
   const labelsLayerRef = useRef<Cesium.ImageryLayer | null>(null);
   const filterStageRef = useRef<Cesium.PostProcessStage | null>(null);
   const measureEntitiesRef = useRef<Cesium.Entity[]>([]);
+  const lastScreenshotRef = useRef<number>(0);
 
   const {
     layers,
@@ -171,6 +175,27 @@ export function Globe() {
               }
             }
           }
+
+          // Handle point primitive (fires — same pattern as satellites)
+          if (picked.primitive && picked.primitive._fireData) {
+            const data = picked.primitive._fireData;
+            setSelectedEntity({
+              type: 'fire',
+              id: `fire-${data.latitude}-${data.longitude}`,
+              data: {
+                latitude: data.latitude,
+                longitude: data.longitude,
+                brightness: data.brightness,
+                frp: data.frp,
+                confidence: data.confidence,
+                acq_date: data.acq_date,
+                acq_time: data.acq_time,
+                satellite: data.satellite,
+                daynight: data.daynight,
+              },
+            });
+            return;
+          }
         }
 
         // Click on nothing - deselect
@@ -229,6 +254,7 @@ export function Globe() {
       .then((tileset) => {
         viewer.scene.primitives.add(tileset);
         tilesetRef.current = tileset;
+        layersRef.current.weather?.setTileset(tileset);
         viewer.scene.requestRender();
       })
       .catch((e) => {
@@ -281,6 +307,10 @@ export function Globe() {
     layersRef.current.weather = new WeatherLayer(viewer);
     layersRef.current.groundStops = groundStopLayer;
 
+    const fireLayer = new FireLayer(viewer);
+    fireLayer.setOnCountUpdate((count) => setEntityCount('fires', count));
+    layersRef.current.fires = fireLayer;
+
     viewerRef.current = viewer;
 
     // Trigger initial render
@@ -294,6 +324,7 @@ export function Globe() {
       layersRef.current.cameras?.stop();
       layersRef.current.weather?.stop();
       layersRef.current.groundStops?.stop();
+      layersRef.current.fires?.stop();
       viewer.destroy();
     };
   }, []);
@@ -358,6 +389,16 @@ export function Globe() {
       l.groundStops?.stop();
     }
   }, [layers.groundStops]);
+
+  useEffect(() => {
+    const l = layersRef.current;
+    if (layers.fires) {
+      l.fires?.start();
+      setDataTimestamp('fires', Date.now());
+    } else {
+      l.fires?.stop();
+    }
+  }, [layers.fires]);
 
   // Labels overlay (Google 2D roadmap on 3D tiles)
   useEffect(() => {
@@ -490,6 +531,13 @@ export function Globe() {
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer || !screenshotRequested) return;
+
+    const now = Date.now();
+    if (now - lastScreenshotRef.current < 3000) {
+      clearScreenshotRequest();
+      return;
+    }
+    lastScreenshotRef.current = now;
 
     clearScreenshotRequest();
     viewer.scene.requestRender();

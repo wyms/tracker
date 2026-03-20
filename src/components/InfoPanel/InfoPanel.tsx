@@ -19,6 +19,8 @@ export function InfoPanel() {
         return <CameraInfo data={selectedEntity.data} />;
       case 'groundStop':
         return <GroundStopInfo data={selectedEntity.data} />;
+      case 'fire':
+        return <FireInfo data={selectedEntity.data} />;
       default:
         return null;
     }
@@ -30,6 +32,7 @@ export function InfoPanel() {
     earthquake: 'EARTHQUAKE',
     camera: 'CAMERA',
     groundStop: 'FAA ALERT',
+    fire: 'FIRE DETECTION',
   }[selectedEntity.type];
 
   const typeColor = {
@@ -38,6 +41,7 @@ export function InfoPanel() {
     earthquake: '#FF5722',
     camera: '#FF6B35',
     groundStop: '#FF1744',
+    fire: '#FF6600',
   }[selectedEntity.type];
 
   return (
@@ -89,6 +93,7 @@ function AircraftInfo({ data }: { data: Record<string, unknown> }) {
 
   useEffect(() => {
     if (!icao24) return;
+    let cancelled = false;
     setRoute(null);
     setRouteLoading(true);
 
@@ -97,6 +102,7 @@ function AircraftInfo({ data }: { data: Record<string, unknown> }) {
 
     fetchHistoricalFlights(icao24, twoDaysAgo, now)
       .then((flights) => {
+        if (cancelled) return;
         if (flights.length > 0) {
           const latest = flights[flights.length - 1];
           setRoute({
@@ -108,9 +114,13 @@ function AircraftInfo({ data }: { data: Record<string, unknown> }) {
         }
       })
       .catch(() => {
-        setRoute({ departure: null, arrival: null });
+        if (!cancelled) setRoute({ departure: null, arrival: null });
       })
-      .finally(() => setRouteLoading(false));
+      .finally(() => {
+        if (!cancelled) setRouteLoading(false);
+      });
+
+    return () => { cancelled = true; };
   }, [icao24]);
 
   return (
@@ -239,6 +249,30 @@ function GroundStopInfo({ data }: { data: Record<string, unknown> }) {
       <InfoRow label="Program" value={typeLabels[data.type as string] || String(data.type)} />
       <InfoRow label="Reason" value={data.reason as string} />
       <InfoRow label="Detail" value={data.detail as string} />
+    </div>
+  );
+}
+
+function FireInfo({ data }: { data: Record<string, unknown> }) {
+  const time = data.acq_date && data.acq_time
+    ? `${data.acq_date} ${String(data.acq_time).padStart(4, '0').replace(/(\d{2})(\d{2})/, '$1:$2')} UTC`
+    : 'N/A';
+  const confLabel: Record<string, string> = {
+    high: 'High', h: 'High', nominal: 'Nominal', n: 'Nominal', low: 'Low', l: 'Low',
+  };
+  return (
+    <div className="space-y-0.5">
+      <div className="text-sm font-bold text-white mb-2">
+        Satellite Fire Detection
+      </div>
+      <InfoRow label="Lat" value={Number(data.latitude).toFixed(4)} />
+      <InfoRow label="Lon" value={Number(data.longitude).toFixed(4)} />
+      <InfoRow label="FRP" value={data.frp != null ? `${Number(data.frp).toFixed(1)} MW` : 'N/A'} />
+      <InfoRow label="Brightness" value={data.brightness != null ? `${Number(data.brightness).toFixed(1)} K` : 'N/A'} />
+      <InfoRow label="Confidence" value={confLabel[String(data.confidence).toLowerCase()] || String(data.confidence)} />
+      <InfoRow label="Satellite" value={data.satellite as string} />
+      <InfoRow label="Time" value={time} />
+      <InfoRow label="Day/Night" value={data.daynight === 'D' ? 'Day' : data.daynight === 'N' ? 'Night' : String(data.daynight)} />
     </div>
   );
 }
