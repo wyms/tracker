@@ -4,11 +4,15 @@ import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import express from "express";
 import cors from "cors";
+import nodemailer from "nodemailer";
 admin.initializeApp();
 const db = admin.firestore();
 
 const OPENSKY_CLIENT_ID = defineSecret("OPENSKY_CLIENT_ID");
 const OPENSKY_CLIENT_SECRET = defineSecret("OPENSKY_CLIENT_SECRET");
+const SMTP_PASSWORD = defineSecret("SMTP_PASSWORD");
+
+const ADMIN_EMAIL = "kvagol1@gmail.com";
 
 const app = express();
 const ALLOWED_ORIGINS = [
@@ -24,6 +28,180 @@ app.use(cors({
     }
   },
 }));
+
+// --- Firebase Auth middleware ---
+// Extracts and verifies Firebase ID token from Authorization header.
+// Does NOT reject unauthenticated requests — just sets req._fbUser if valid.
+
+interface AuthenticatedRequest extends express.Request {
+  _fbUser?: admin.auth.DecodedIdToken;
+}
+
+app.use(async (req: AuthenticatedRequest, _res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    const idToken = authHeader.slice(7);
+    try {
+      req._fbUser = await admin.auth().verifyIdToken(idToken);
+    } catch {
+      // Invalid token — treat as anonymous
+    }
+  }
+  next();
+});
+
+// --- Rate limiting ---
+// In-memory sliding window per IP. Anon: 10 req/min. Auth: 120 req/min.
+
+const ANON_RATE_LIMIT = 10;
+const AUTH_RATE_LIMIT = 120;
+const RATE_WINDOW_MS = 60_000;
+
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+// Clean stale buckets every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateBuckets) {
+    if (now > bucket.resetAt) rateBuckets.delete(key);
+  }
+}, 120_000);
+
+app.use((req: AuthenticatedRequest, res, next) => {
+  // Skip rate limiting for the sign-in endpoint and usage endpoint
+  if (req.path === '/api/auth/signin' || req.path === '/api/usage') {
+    next();
+    return;
+  }
+
+  const ip = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';
+  const isAuth = !!req._fbUser;
+  const limit = isAuth ? AUTH_RATE_LIMIT : ANON_RATE_LIMIT;
+  const now = Date.now();
+
+  let bucket = rateBuckets.get(ip);
+  if (!bucket || now > bucket.resetAt) {
+    bucket = { count: 0, resetAt: now + RATE_WINDOW_MS };
+    rateBuckets.set(ip, bucket);
+  }
+
+  bucket.count++;
+
+  res.set('X-RateLimit-Limit', String(limit));
+  res.set('X-RateLimit-Remaining', String(Math.max(0, limit - bucket.count)));
+  res.set('X-RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
+
+  if (bucket.count > limit) {
+    const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
+    res.status(429).json({
+      error: 'Rate limit exceeded',
+      retryAfter,
+      authenticated: isAuth,
+      limit,
+    });
+    return;
+  }
+
+  next();
+});
+
+// --- Email notification helper ---
+
+async function sendNotificationEmail(subject: string, body: string) {
+  try {
+    const smtpPass = SMTP_PASSWORD.value();
+    if (!smtpPass) {
+      console.log('SMTP_PASSWORD not configured, skipping email notification');
+      return;
+    }
+
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: ADMIN_EMAIL,
+        pass: smtpPass,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"Tracker" <${ADMIN_EMAIL}>`,
+      to: ADMIN_EMAIL,
+      subject,
+      text: body,
+    });
+  } catch (err) {
+    console.error('Failed to send notification email:', err);
+  }
+}
+
+// --- User sign-in tracking ---
+
+app.post("/api/auth/signin", express.json(), async (req: AuthenticatedRequest, res) => {
+  if (!req._fbUser) {
+    res.status(401).json({ error: 'Invalid or missing authentication token' });
+    return;
+  }
+
+  const { uid, email, name, picture } = req._fbUser;
+  const now = Date.now();
+
+  try {
+    const userRef = db.doc(`users/${uid}`);
+    const existing = await userRef.get();
+    const isNewUser = !existing.exists;
+
+    await userRef.set({
+      uid,
+      email: email || null,
+      displayName: name || null,
+      photoURL: picture || null,
+      lastSignIn: now,
+      signInCount: admin.firestore.FieldValue.increment(1),
+      ...(isNewUser ? { firstSignIn: now } : {}),
+    }, { merge: true });
+
+    // Email notification for new users
+    if (isNewUser) {
+      const emailBody = [
+        `New user signed in to Geospatial Command Center`,
+        ``,
+        `Email: ${email || 'N/A'}`,
+        `Name: ${name || 'N/A'}`,
+        `UID: ${uid}`,
+        `Time: ${new Date(now).toISOString()}`,
+      ].join('\n');
+
+      void sendNotificationEmail(`New User: ${email || name || uid}`, emailBody);
+    }
+
+    res.json({ ok: true, isNewUser });
+  } catch (err) {
+    console.error('Failed to track user sign-in:', err);
+    res.status(500).json({ error: 'Failed to record sign-in' });
+  }
+});
+
+// --- Users list endpoint (admin) ---
+
+app.get("/api/users", async (req: AuthenticatedRequest, res) => {
+  // Only allow authenticated users (you can restrict to specific UIDs later)
+  if (!req._fbUser) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+
+  try {
+    const snapshot = await db.collection('users')
+      .orderBy('lastSignIn', 'desc')
+      .limit(100)
+      .get();
+    const users = snapshot.docs.map(d => d.data());
+    res.json(users);
+  } catch (err) {
+    console.error('Failed to read users:', err);
+    res.status(500).json({ error: 'Failed to read users' });
+  }
+});
 
 // --- OpenSky OAuth2 token cache (server-side) ---
 
@@ -431,7 +609,7 @@ export const api = onRequest(
     memory: "256MiB",
     concurrency: 80,
     timeoutSeconds: 60,
-    secrets: [OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET],
+    secrets: [OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, SMTP_PASSWORD],
   },
   app
 );

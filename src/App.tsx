@@ -91,6 +91,17 @@ function App() {
         if (!layers.satellites) toggleLayer('satellites');
         if (!layers.cameras) toggleLayer('cameras');
         if (!layers.groundStops) toggleLayer('groundStops');
+
+        // Track sign-in on backend (user table + email notification)
+        firebaseUser.getIdToken().then((token) => {
+          fetch('/api/auth/signin', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+          }).catch(() => { /* non-critical */ });
+        }).catch(() => { /* non-critical */ });
       } else {
         setUser(null);
         setApiUsage(null);

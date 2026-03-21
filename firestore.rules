@@ -2,9 +2,21 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Tracked flights: readable by anyone, writable only by server (admin SDK)
+    // Tracked flights: readable by authenticated users, writable only by server
     match /tracked-flights/{document=**} {
-      allow read: if true;
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Users: readable only by the user themselves, writable only by server
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // API metrics: server-only (admin SDK)
+    match /api-metrics/{document=**} {
+      allow read: if false;
       allow write: if false;
     }
   }
