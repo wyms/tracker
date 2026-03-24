@@ -114,7 +114,8 @@ app.use((req: AuthenticatedRequest, res, next) => {
 
 async function sendNotificationEmail(subject: string, body: string) {
   try {
-    const smtpPass = SMTP_PASSWORD.value();
+    // SMTP_PASSWORD is optional — if not configured, skip email silently
+    const smtpPass = SMTP_PASSWORD.value() || process.env.SMTP_PASSWORD || '';
     if (!smtpPass) {
       console.log('SMTP_PASSWORD not configured, skipping email notification');
       return;
@@ -666,7 +667,7 @@ export const api = onRequest(
     memory: "256MiB",
     concurrency: 80,
     timeoutSeconds: 60,
-    secrets: [OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, SMTP_PASSWORD],
+    secrets: [OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET],
   },
   app
 );
