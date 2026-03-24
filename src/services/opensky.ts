@@ -66,91 +66,30 @@ export interface BoundingBox {
 
 const OPENSKY_DIRECT = "https://opensky-network.org";
 
-// --- Client-side OAuth2 token cache ---
-// Used when the Cloud Function proxy is unreachable (GCP connectivity issues).
-// Credentials are already in VITE_ env vars (bundled into the client).
-
-let cachedToken: { token: string; expiresAt: number } | null = null;
-
-async function getOpenSkyToken(): Promise<string | null> {
-  const clientId = import.meta.env.VITE_OPENSKY_CLIENT_ID;
-  const clientSecret = import.meta.env.VITE_OPENSKY_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
-
-  if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) {
-    return cachedToken.token;
-  }
-
-  try {
-    const res = await fetch(
-      "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "client_credentials",
-          client_id: clientId,
-          client_secret: clientSecret,
-        }),
-      },
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    cachedToken = {
-      token: data.access_token,
-      expiresAt: Date.now() + data.expires_in * 1000,
-    };
-    return cachedToken.token;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Fetch with triple-fallback strategy:
- * 1. Cloud Function proxy (fastest when working, 4s timeout)
- * 2. CORS proxy via allorigins.win (reliable fallback when GCP is blocked)
- * 3. Direct OpenSky call with auth (works in dev, CORS-blocked in prod)
+ * Fetch with fallback:
+ * 1. Cloud Function proxy (primary, 4s timeout)
+ * 2. Direct OpenSky call without auth (dev fallback)
  */
-async function fetchWithFallback(proxyUrl: string, directUrl: string): Promise<Response> {
-  // 1. Cloud Function proxy — fast but GCP IPs may be blocked
+async function fetchWithFallback(proxyUrl: string, directUrl: string, timeoutMs = 30_000): Promise<Response> {
+  // 1. Cloud Function proxy
   const proxyController = new AbortController();
-  const proxyTimeout = setTimeout(() => proxyController.abort(), 4_000);
-
-  const proxyPromise = fetch(proxyUrl, { signal: proxyController.signal })
-    .then((res) => {
-      clearTimeout(proxyTimeout);
-      if (!res.ok) throw new Error(`Proxy ${res.status}`);
-      return res;
-    })
-    .catch((err) => {
-      clearTimeout(proxyTimeout);
-      throw err;
-    });
-
-  // 2. CORS proxy fallback — uses allorigins.win to bypass CORS + GCP blocks
-  const corsProxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
-  const corsProxyPromise = fetch(corsProxyUrl)
-    .then((res) => {
-      if (!res.ok) throw new Error(`CORSProxy ${res.status}`);
-      return res;
-    });
-
-  // 3. Direct call with auth (works in dev via Vite proxy, CORS-blocked in prod)
-  const directPromise = (async () => {
-    const token = await getOpenSkyToken();
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(directUrl, { headers });
-    if (!res.ok) throw new Error(`Direct ${res.status}`);
-    return res;
-  })();
+  const proxyTimeout = setTimeout(() => proxyController.abort(), timeoutMs);
 
   try {
-    return await Promise.any([proxyPromise, corsProxyPromise, directPromise]);
-  } catch {
-    // All three failed — try CORS proxy one more time as final attempt
-    return corsProxyPromise;
+    const res = await fetch(proxyUrl, { signal: proxyController.signal });
+    clearTimeout(proxyTimeout);
+    if (!res.ok) throw new Error(`Proxy ${res.status}`);
+    return res;
+  } catch (err) {
+    clearTimeout(proxyTimeout);
+
+    // 2. Direct call without auth — only in dev (Vite proxy handles CORS)
+    if (import.meta.env.DEV) {
+      return fetch(directUrl);
+    }
+
+    throw err instanceof Error ? err : new Error('Proxy unavailable');
   }
 }
 
@@ -184,19 +123,19 @@ function parseStateVector(
 function parseAdsbFiAircraft(ac: Record<string, unknown>): AircraftState {
   return {
     icao24: (ac.hex as string) || "",
-    callsign: ac.flight != null ? (ac.flight as string).trim() : null,
-    origin_country: (ac.r as string) || "",
+    callsign: ac.r != null ? (ac.r as string).trim() : (ac.flight != null ? (ac.flight as string).trim() : null),
+    origin_country: "",
     time_position: ac.seen_pos != null ? Math.floor(Date.now() / 1000) - (ac.seen_pos as number) : null,
     last_contact: Math.floor(Date.now() / 1000) - ((ac.seen as number) || 0),
     longitude: (ac.lon as number) ?? null,
     latitude: (ac.lat as number) ?? null,
-    baro_altitude: ac.alt_baro === "ground" ? 0 : (ac.alt_baro as number ?? null),
+    baro_altitude: ac.alt_baro === "ground" ? 0 : (ac.alt_baro != null ? (ac.alt_baro as number) * 0.3048 : null),
     on_ground: ac.alt_baro === "ground",
-    velocity: (ac.gs as number) ?? null,
+    velocity: ac.gs != null ? (ac.gs as number) * 0.514444 : null, // knots to m/s
     true_track: (ac.track as number) ?? null,
     vertical_rate: ac.baro_rate != null ? (ac.baro_rate as number) * 0.00508 : null, // fpm to m/s
     sensors: null,
-    geo_altitude: (ac.alt_geom as number) ?? null,
+    geo_altitude: ac.alt_geom != null ? (ac.alt_geom as number) * 0.3048 : null,
     squawk: (ac.squawk as string) ?? null,
     spi: false,
     position_source: 0,
@@ -207,6 +146,19 @@ function parseAdsbFiAircraft(ac: Record<string, unknown>): AircraftState {
  * Fetch flights using adsb.fi (primary) with OpenSky fallback.
  * adsb.fi is free, no auth, and reachable from GCP.
  */
+/**
+ * Detect if a bounding box crosses the anti-meridian (west > east).
+ * If so, split into two boxes. Otherwise return as-is.
+ */
+function splitAntiMeridian(bbox: BoundingBox): BoundingBox[] {
+  if (bbox.west <= bbox.east) return [bbox];
+  // Crosses anti-meridian: split into [west..180] and [-180..east]
+  return [
+    { south: bbox.south, west: bbox.west, north: bbox.north, east: 180 },
+    { south: bbox.south, west: -180, north: bbox.north, east: bbox.east },
+  ];
+}
+
 export async function fetchFlights(
   bbox?: BoundingBox
 ): Promise<AircraftState[]> {
@@ -214,60 +166,60 @@ export async function fetchFlights(
   try {
     if (bbox) {
       const centerLat = (bbox.south + bbox.north) / 2;
-      const centerLon = (bbox.west + bbox.east) / 2;
-      // Approximate distance in nautical miles from bbox span
+      // Handle anti-meridian for center calculation
+      const centerLon = bbox.west <= bbox.east
+        ? (bbox.west + bbox.east) / 2
+        : ((bbox.west + bbox.east + 360) / 2) % 360 - 180;
       const latSpan = bbox.north - bbox.south;
-      const lonSpan = bbox.east - bbox.west;
-      const dist = Math.min(250, Math.max(latSpan, lonSpan) * 30);
-      const res = await fetch(`/api/adsb/api/v2/lat/${centerLat.toFixed(2)}/lon/${centerLon.toFixed(2)}/dist/${Math.round(dist)}`);
-      if (res.ok) {
-        const data = await res.json();
-        const aircraft = (data.aircraft || []) as Record<string, unknown>[];
-        return aircraft
-          .filter((ac) => ac.lat != null && ac.lon != null)
-          .map(parseAdsbFiAircraft);
+      const lonSpan = bbox.west <= bbox.east
+        ? bbox.east - bbox.west
+        : 360 - bbox.west + bbox.east;
+      const dist = Math.max(latSpan, lonSpan) * 30;
+      // adsb.fi supports ~250nm radius; for larger regions fall through to OpenSky bbox
+      if (dist <= 250) {
+        const res = await fetch(`/api/adsb/api/v2/lat/${centerLat.toFixed(2)}/lon/${centerLon.toFixed(2)}/dist/${Math.round(dist)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const aircraft = (data.aircraft || []) as Record<string, unknown>[];
+          return aircraft
+            .filter((ac) => ac.lat != null && ac.lon != null)
+            .map(parseAdsbFiAircraft);
+        }
       }
     }
   } catch {
     // adsb.fi failed, fall through to OpenSky
   }
 
-  // Fallback to OpenSky
-  const params = new URLSearchParams();
-
+  // Fallback to OpenSky — split anti-meridian boxes into two requests
   if (bbox) {
-    params.set("lamin", bbox.south.toString());
-    params.set("lomin", bbox.west.toString());
-    params.set("lamax", bbox.north.toString());
-    params.set("lomax", bbox.east.toString());
+    const boxes = splitAntiMeridian(bbox);
+    const results: AircraftState[] = [];
+    for (const box of boxes) {
+      const params = new URLSearchParams({
+        lamin: box.south.toString(),
+        lomin: box.west.toString(),
+        lamax: box.north.toString(),
+        lomax: box.east.toString(),
+      });
+      const suffix = `/states/all?${params}`;
+      try {
+        const response = await fetchWithFallback(
+          `/api/opensky${suffix}`,
+          `${OPENSKY_DIRECT}/api${suffix}`,
+        );
+        if (response.ok) {
+          const data: OpenSkyResponse = await response.json();
+          if (data.states) results.push(...data.states.map(parseStateVector));
+        }
+      } catch {
+        // Continue with other box if one fails
+      }
+    }
+    return results;
   }
 
-  const query = params.toString();
-  const suffix = `/states/all${query ? `?${query}` : ""}`;
-
-  const response = await fetchWithFallback(
-    `/api/opensky${suffix}`,
-    `${OPENSKY_DIRECT}/api${suffix}`,
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      `OpenSky API error: ${response.status} ${response.statusText}`
-    );
-  }
-
-  const data: OpenSkyResponse = await response.json();
-
-  if (!data.states) {
-    return [];
-  }
-
-  return data.states.map(parseStateVector);
-}
-
-export async function searchLiveByCallsign(
-  callsign: string
-): Promise<AircraftState[]> {
+  // No bbox — fetch all
   const response = await fetchWithFallback(
     `/api/opensky/states/all`,
     `${OPENSKY_DIRECT}/api/states/all`,
@@ -280,18 +232,33 @@ export async function searchLiveByCallsign(
   }
 
   const data: OpenSkyResponse = await response.json();
-  if (!data.states) return [];
+  return data.states ? data.states.map(parseStateVector) : [];
+}
 
-  const needle = callsign.toUpperCase();
-  return data.states
-    .map(parseStateVector)
-    .filter(
-      (ac) =>
-        ac.callsign != null &&
-        ac.callsign.toUpperCase().includes(needle) &&
-        ac.latitude != null &&
-        ac.longitude != null
+export async function searchLiveByCallsign(
+  callsign: string
+): Promise<AircraftState[]> {
+  // Use adsb.fi callsign endpoint (fast, returns only matching aircraft)
+  // No OpenSky fallback — the full state vector download is too slow/unreliable
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25_000);
+    const res = await fetch(
+      `/api/adsb/api/v2/callsign/${encodeURIComponent(callsign.trim())}`,
+      { signal: controller.signal },
     );
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      const aircraft = (data.aircraft || []) as Record<string, unknown>[];
+      return aircraft
+        .filter((ac) => ac.lat != null && ac.lon != null)
+        .map(parseAdsbFiAircraft);
+    }
+  } catch {
+    // adsb.fi failed
+  }
+  return [];
 }
 
 export async function fetchHistoricalFlights(
