@@ -15,6 +15,9 @@ const SMTP_PASSWORD = defineSecret("SMTP_PASSWORD");
 const ADMIN_EMAIL = "kvagol1@gmail.com";
 
 const app = express();
+// Cloud Run sits behind Google's load balancer; trust one hop so req.ip
+// reflects the real client IP from X-Forwarded-For, not the LB's IP.
+app.set('trust proxy', 1);
 const ALLOWED_ORIGINS = [
   'https://trackerofthings.web.app',
   'https://trackerofthings.firebaseapp.com',
@@ -51,9 +54,9 @@ app.use(async (req: AuthenticatedRequest, _res, next) => {
 });
 
 // --- Rate limiting ---
-// In-memory sliding window per IP. Anon: 10 req/min. Auth: 120 req/min.
+// In-memory sliding window per IP. Anon: 30 req/min. Auth: 120 req/min.
 
-const ANON_RATE_LIMIT = 10;
+const ANON_RATE_LIMIT = 30;
 const AUTH_RATE_LIMIT = 120;
 const RATE_WINDOW_MS = 60_000;
 
@@ -74,7 +77,9 @@ app.use((req: AuthenticatedRequest, res, next) => {
     return;
   }
 
-  const ip = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';
+  // req.ip is correct after `trust proxy 1`; fall back to first XFF entry
+  const xffRaw = req.headers['x-forwarded-for'] as string | undefined;
+  const ip = req.ip || (xffRaw ? xffRaw.split(',')[0].trim() : 'unknown');
   const isAuth = !!req._fbUser;
   const limit = isAuth ? AUTH_RATE_LIMIT : ANON_RATE_LIMIT;
   const now = Date.now();
@@ -203,6 +208,27 @@ app.get("/api/users", async (req: AuthenticatedRequest, res) => {
   }
 });
 
+// --- OpenSky circuit breaker ---
+// If OpenSky has failed recently, skip it entirely to avoid blocking other routes.
+let openSkyCircuitOpen = false;
+let openSkyCircuitResetAt = 0;
+const CIRCUIT_COOLDOWN_MS = 120_000; // 2 minutes
+
+function openSkyAvailable(): boolean {
+  if (!openSkyCircuitOpen) return true;
+  if (Date.now() > openSkyCircuitResetAt) {
+    openSkyCircuitOpen = false;
+    return true;
+  }
+  return false;
+}
+
+function tripOpenSkyCircuit() {
+  openSkyCircuitOpen = true;
+  openSkyCircuitResetAt = Date.now() + CIRCUIT_COOLDOWN_MS;
+  console.warn("OpenSky circuit breaker tripped — skipping OpenSky requests for 2 minutes");
+}
+
 // --- OpenSky OAuth2 token cache (server-side) ---
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
@@ -218,7 +244,7 @@ async function getOpenSkyToken(): Promise<string | null> {
     }
 
     const tokenController = new AbortController();
-    const tokenTimeout = setTimeout(() => tokenController.abort(), 30_000);
+    const tokenTimeout = setTimeout(() => tokenController.abort(), 8_000);
     const response = await globalThis.fetch(
       "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
       {
@@ -379,7 +405,8 @@ async function fetchWithRetry(
       // Retry on 502/503/429 (rate limit)
       if ((res.status === 502 || res.status === 503 || res.status === 429) && attempt < retries) {
         const delay = 1000 * Math.pow(2, attempt);
-        console.warn(`Upstream ${res.status} for ${url}, retrying in ${delay}ms (attempt ${attempt + 1}/${retries})`);
+        const safePath = new URL(url).pathname;
+        console.warn(`Upstream ${res.status} for ${safePath}, retrying in ${delay}ms (attempt ${attempt + 1}/${retries})`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
@@ -391,7 +418,8 @@ async function fetchWithRetry(
     } catch (err) {
       if (attempt < retries) {
         const delay = 1000 * Math.pow(2, attempt);
-        console.warn(`Fetch error for ${url}, retrying in ${delay}ms:`, err);
+        const safePath = (() => { try { return new URL(url).pathname; } catch { return '[invalid-url]'; } })();
+        console.warn(`Fetch error for ${safePath}, retrying in ${delay}ms:`, err);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
@@ -448,7 +476,8 @@ async function cachedProxyRequest(
     res.set("X-Cache", "MISS");
     res.send(entry.body);
   } catch (err) {
-    console.error(`Proxy error for ${targetUrl}:`, err);
+    const safePath = (() => { try { return new URL(targetUrl).pathname; } catch { return '[invalid-url]'; } })();
+    console.error(`Proxy error for ${safePath}:`, err);
     res.status(502).json({ error: "Upstream request failed" });
   }
 }
@@ -478,6 +507,12 @@ app.get("/api/usage", (_req, res) => {
 
 // OpenSky API (authenticated + cached with adaptive TTL)
 app.get("/api/opensky/*", async (req, res) => {
+  // Circuit breaker: if OpenSky has been failing, return 503 immediately
+  if (!openSkyAvailable()) {
+    res.status(503).json({ error: "OpenSky temporarily unavailable" });
+    return;
+  }
+
   const path = req.path.replace(/^\/api\/opensky/, "/api");
 
   if (!OPENSKY_PATH_PREFIXES.some((p) => path.startsWith(p))) {
@@ -507,7 +542,14 @@ app.get("/api/opensky/*", async (req, res) => {
     trackApiCall();
   }
 
-  await cachedProxyRequest(targetUrl, req, res, headers, getAdaptiveCacheTtl());
+  try {
+    await cachedProxyRequest(targetUrl, req, res, headers, getAdaptiveCacheTtl());
+  } catch {
+    tripOpenSkyCircuit();
+    if (!res.headersSent) {
+      res.status(502).json({ error: "OpenSky upstream failed" });
+    }
+  }
 });
 
 // CelesTrak (no auth, cached)
@@ -584,7 +626,22 @@ app.all("/api/faa/*", async (req, res) => {
 
 // --- Tracked flights API endpoint ---
 
-const TRACKED_CALLSIGNS = ["N307EL", "N308EL", "N309EL"];
+const DEFAULT_TRACKED_CALLSIGNS = ["N307EL", "N308EL", "N309EL"];
+
+async function getTrackedCallsigns(): Promise<string[]> {
+  try {
+    const doc = await db.doc("config/tracked-aircraft").get();
+    if (doc.exists) {
+      const data = doc.data();
+      if (Array.isArray(data?.callsigns) && data.callsigns.length > 0) {
+        return data.callsigns;
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load tracked callsigns from Firestore:", err);
+  }
+  return DEFAULT_TRACKED_CALLSIGNS;
+}
 
 app.get("/api/tracked-flights", async (_req, res) => {
   try {
@@ -627,6 +684,7 @@ export const trackFlights = onSchedule(
     secrets: [OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET],
   },
   async () => {
+    const TRACKED_CALLSIGNS = await getTrackedCallsigns();
     console.log("trackFlights: polling OpenSky for", TRACKED_CALLSIGNS.join(", "));
 
     // /states/all works without auth — skip token to avoid timeout on auth server.
