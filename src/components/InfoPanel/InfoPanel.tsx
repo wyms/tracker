@@ -395,6 +395,8 @@ function EonetEventInfo({ data }: { data: Record<string, unknown> }) {
 }
 
 function ArtemisInfo({ data }: { data: Record<string, unknown> }) {
+  const { setFlyToTarget } = useAppStore();
+
   return (
     <div className="space-y-0.5">
       <div className="text-sm font-bold text-white mb-2">
@@ -405,6 +407,17 @@ function ArtemisInfo({ data }: { data: Record<string, unknown> }) {
       <InfoRow label="Phase" value={data.phase as string} />
       <InfoRow label="Distance" value={data.distanceKm != null ? `${Number(data.distanceKm).toLocaleString()} km (${Number(Number(data.distanceKm) * 0.621371).toLocaleString()} mi) from Earth` : 'N/A'} />
       <InfoRow label="Mission Time" value={data.missionTime as string} />
+      <button
+        onClick={() => setFlyToTarget({ lat: 20, lon: 0, alt: 10000000 })}
+        className="mt-3 w-full rounded px-3 py-1.5 text-xs font-mono"
+        style={{
+          background: 'rgba(0,229,255,0.1)',
+          border: '1px solid rgba(0,229,255,0.3)',
+          color: '#00E5FF',
+        }}
+      >
+        Back to Earth
+      </button>
     </div>
   );
 }
