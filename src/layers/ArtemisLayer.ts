@@ -302,24 +302,40 @@ export class ArtemisLayer {
     this.viewer.scene.requestRender();
   }
 
-  /** Fly camera to center on Orion's current position */
+  /** Fly camera to bird's-eye view above the orbital plane, centered on Orion */
   flyTo() {
     const hour = this.getMissionHour();
     const pos = this.interpolatePosition(hour);
     if (!pos) return;
 
-    // Offset the camera so it's looking at the craft from a distance
-    const dist = Cesium.Cartesian3.magnitude(pos);
-    const direction = Cesium.Cartesian3.normalize(pos, new Cesium.Cartesian3());
-    // Pull camera back along the same direction, plus raise it a bit
-    const offset = Cesium.Cartesian3.multiplyByScalar(direction, dist * 0.3, new Cesium.Cartesian3());
-    const camPos = Cesium.Cartesian3.add(pos, offset, new Cesium.Cartesian3());
+    // Earth-Moon line direction (the orbital plane reference)
+    const flybyJd = Cesium.JulianDate.addHours(this.launchJd, FLYBY_HOURS, new Cesium.JulianDate());
+    const moonEci = this.getMoonPositionEci(flybyJd);
+    const moonDir = Cesium.Cartesian3.normalize(moonEci, new Cesium.Cartesian3());
+
+    // Normal to the orbital plane (cross Earth-Moon dir with Z)
+    const zAxis = new Cesium.Cartesian3(0, 0, 1);
+    const planeNormal = Cesium.Cartesian3.normalize(
+      Cesium.Cartesian3.cross(moonDir, zAxis, new Cesium.Cartesian3()),
+      new Cesium.Cartesian3()
+    );
+
+    // Place camera above Orion along the plane normal, far enough to see the trajectory
+    const viewDistance = MOON_DISTANCE_KM * 1000 * 1.2; // 1.2x Moon distance for good framing
+    const camPos = Cesium.Cartesian3.add(
+      pos,
+      Cesium.Cartesian3.multiplyByScalar(planeNormal, viewDistance, new Cesium.Cartesian3()),
+      new Cesium.Cartesian3()
+    );
+
+    // Look down at Orion, with the Earth-Moon line as "up" on screen
+    const lookDir = Cesium.Cartesian3.negate(planeNormal, new Cesium.Cartesian3());
 
     this.viewer.camera.flyTo({
       destination: camPos,
       orientation: {
-        direction: Cesium.Cartesian3.negate(direction, new Cesium.Cartesian3()),
-        up: new Cesium.Cartesian3(0, 0, 1),
+        direction: lookDir,
+        up: moonDir,
       },
       duration: 2,
     });
