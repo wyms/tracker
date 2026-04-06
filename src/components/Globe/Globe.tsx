@@ -146,6 +146,7 @@ export function Globe() {
                     missionTime: posStr.split('·')[2]?.trim(),
                   },
                 });
+                layersRef.current.artemis?.flyTo();
                 return;
               }
             }
