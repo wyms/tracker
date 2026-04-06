@@ -560,12 +560,24 @@ export function Globe() {
     const l = layersRef.current;
     if (layers.artemis) {
       l.artemis?.start().then(() => {
-        const pos = l.artemis?.getPositionString();
-        if (pos) {
+        const posStr = l.artemis?.getPositionString() || '';
+        if (posStr) {
           addNotification({
             type: 'success',
             title: 'Artemis II — Orion',
-            message: pos,
+            message: posStr,
+          });
+          setSelectedEntity({
+            type: 'artemis',
+            id: 'artemis-orion',
+            data: {
+              name: 'ORION (ARTEMIS II)',
+              mission: 'Artemis II',
+              vehicle: 'Orion MPCV',
+              phase: posStr.split('·')[0]?.trim(),
+              distanceKm: posStr.match(/(\d[\d,]*)\s*km/)?.[1]?.replace(/,/g, ''),
+              missionTime: posStr.split('·')[2]?.trim(),
+            },
           });
           l.artemis?.flyTo();
         }
