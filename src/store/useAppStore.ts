@@ -31,6 +31,7 @@ export interface LayerState {
   gdelt: boolean;
   radiation: boolean;
   eonet: boolean;
+  artemis: boolean;
 }
 
 export interface DataTimestamp {
@@ -44,10 +45,11 @@ export interface DataTimestamp {
   gdelt: number | null;
   radiation: number | null;
   eonet: number | null;
+  artemis: number | null;
 }
 
 export interface SelectedEntity {
-  type: 'aircraft' | 'satellite' | 'earthquake' | 'camera' | 'groundStop' | 'fire' | 'gdeltEvent' | 'radiation' | 'eonetEvent';
+  type: 'aircraft' | 'satellite' | 'earthquake' | 'camera' | 'groundStop' | 'fire' | 'gdeltEvent' | 'radiation' | 'eonetEvent' | 'artemis';
   id: string;
   data: Record<string, unknown>;
 }
@@ -74,6 +76,7 @@ export interface EntityCounts {
   gdelt: number;
   radiation: number;
   eonet: number;
+  artemis: number;
 }
 
 export interface Bookmark {
@@ -220,15 +223,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   layers: {
     flights: false,
     satellites: false,
-    earthquakes: true,
+    earthquakes: false,
     cameras: false,
     weather: false,
-    labels: false,
+    labels: true,
     groundStops: false,
     fires: false,
     gdelt: false,
     radiation: false,
     eonet: false,
+    artemis: false,
   },
   toggleLayer: (layer) =>
     set((state) => ({
@@ -241,7 +245,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedEntity: null,
   setSelectedEntity: (entity) => set({ selectedEntity: entity }),
 
-  cameraPosition: { latitude: 0, longitude: 0, altitude: 10000000 },
+  cameraPosition: { latitude: 0, longitude: 0, altitude: 25000000 },
   setCameraPosition: (pos) => set({ cameraPosition: pos }),
 
   dataTimestamps: {
@@ -255,6 +259,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     gdelt: null,
     radiation: null,
     eonet: null,
+    artemis: null,
   },
   setDataTimestamp: (layer, time) =>
     set((state) => ({
@@ -262,7 +267,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
 
   // Entity counts
-  entityCounts: { flights: 0, satellites: 0, earthquakes: 0, cameras: 0, groundStops: 0, fires: 0, gdelt: 0, radiation: 0, eonet: 0 },
+  entityCounts: { flights: 0, satellites: 0, earthquakes: 0, cameras: 0, groundStops: 0, fires: 0, gdelt: 0, radiation: 0, eonet: 0, artemis: 0 },
   setEntityCount: (layer, count) =>
     set((state) => ({
       entityCounts: { ...state.entityCounts, [layer]: count },

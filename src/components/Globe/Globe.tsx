@@ -13,6 +13,7 @@ import { FireLayer } from '../../layers/FireLayer';
 import { GdeltLayer } from '../../layers/GdeltLayer';
 import { RadiationLayer } from '../../layers/RadiationLayer';
 import { EonetLayer } from '../../layers/EonetLayer';
+import { ArtemisLayer } from '../../layers/ArtemisLayer';
 import { fragmentShader as flirShader } from '../../filters/flir';
 import { fragmentShader as nightvisionShader } from '../../filters/nightvision';
 import { fragmentShader as crtShader } from '../../filters/crt';
@@ -33,6 +34,7 @@ export function Globe() {
     gdelt: GdeltLayer | null;
     radiation: RadiationLayer | null;
     eonet: EonetLayer | null;
+    artemis: ArtemisLayer | null;
   }>({
     flights: null,
     satellites: null,
@@ -45,6 +47,7 @@ export function Globe() {
     gdelt: null,
     radiation: null,
     eonet: null,
+    artemis: null,
   });
   const tilesetRef = useRef<Cesium.Cesium3DTileset | null>(null);
   const labelsLayerRef = useRef<Cesium.ImageryLayer | null>(null);
@@ -122,10 +125,30 @@ export function Globe() {
             return;
           }
 
-          // Handle entity pick (flights, earthquakes, cameras)
+          // Handle entity pick (flights, earthquakes, cameras, artemis)
           if (picked.id && picked.id instanceof Cesium.Entity) {
             const entity = picked.id;
             const entityType = (entity as any)._entityType;
+
+            if (entityType === 'artemis') {
+              const data = (entity as any)._artemisData;
+              if (data) {
+                const posStr = layersRef.current.artemis?.getPositionString() || '';
+                setSelectedEntity({
+                  type: 'artemis',
+                  id: 'artemis-orion',
+                  data: {
+                    name: data.OBJECT_NAME || 'ORION (ARTEMIS II)',
+                    mission: data.mission || 'Artemis II',
+                    vehicle: data.vehicle || 'Orion MPCV',
+                    phase: posStr.split('·')[0]?.trim(),
+                    distanceKm: posStr.match(/(\d[\d,]*)\s*km/)?.[1]?.replace(/,/g, ''),
+                    missionTime: posStr.split('·')[2]?.trim(),
+                  },
+                });
+                return;
+              }
+            }
 
             if (entityType === 'aircraft') {
               const data = (entity as any)._flightData;
@@ -315,13 +338,25 @@ export function Globe() {
     viewer.scene.moon = undefined as any;
     viewer.scene.skyAtmosphere = undefined as any;
 
+    // Set initial zoom to show full globe
+    const isMobile = window.innerWidth < 768;
+    const fullGlobeView = Cesium.Cartesian3.fromDegrees(0, 20, isMobile ? 16_000_000 : 25_000_000);
+    viewer.camera.setView({ destination: fullGlobeView });
+
     // Load Google Photorealistic 3D Tiles
     Cesium.createGooglePhotorealistic3DTileset()
       .then((tileset) => {
         viewer.scene.primitives.add(tileset);
         tilesetRef.current = tileset;
         layersRef.current.weather?.setTileset(tileset);
+        // Re-apply zoom after tiles load in case tileset reset the camera
+        viewer.camera.setView({ destination: fullGlobeView });
         viewer.scene.requestRender();
+        // And again after a delay in case of deferred camera resets
+        setTimeout(() => {
+          viewer.camera.setView({ destination: fullGlobeView });
+          viewer.scene.requestRender();
+        }, 1000);
       })
       .catch((e) => {
         console.error('Failed to load Google 3D Tiles:', e);
@@ -343,7 +378,10 @@ export function Globe() {
 
     // Initialize layers
     const flightLayer = new FlightLayer(viewer);
-    flightLayer.setOnCountUpdate((count) => setEntityCount('flights', count));
+    flightLayer.setOnCountUpdate((count) => {
+      setEntityCount('flights', count);
+      setDataTimestamp('flights', Date.now());
+    });
 
     const satLayer = new SatelliteLayer(viewer);
     satLayer.setOnCountUpdate((count) => setEntityCount('satellites', count));
@@ -390,6 +428,10 @@ export function Globe() {
     eonetLayer.setOnCountUpdate((count) => setEntityCount('eonet', count));
     layersRef.current.eonet = eonetLayer;
 
+    const artemisLayer = new ArtemisLayer(viewer);
+    artemisLayer.setOnCountUpdate((count) => setEntityCount('artemis', count));
+    layersRef.current.artemis = artemisLayer;
+
     viewerRef.current = viewer;
 
     // Trigger initial render
@@ -407,6 +449,7 @@ export function Globe() {
       layersRef.current.gdelt?.stop();
       layersRef.current.radiation?.stop();
       layersRef.current.eonet?.stop();
+      layersRef.current.artemis?.stop();
       viewer.destroy();
     };
   }, []);
@@ -512,24 +555,50 @@ export function Globe() {
     }
   }, [layers.eonet]);
 
+  useEffect(() => {
+    const l = layersRef.current;
+    if (layers.artemis) {
+      l.artemis?.start().then(() => {
+        const pos = l.artemis?.getPositionString();
+        if (pos) {
+          addNotification({
+            type: 'success',
+            title: 'Artemis II — Orion',
+            message: pos,
+          });
+          l.artemis?.flyTo();
+        }
+      });
+      setDataTimestamp('artemis', Date.now());
+    } else {
+      l.artemis?.stop();
+    }
+  }, [layers.artemis]);
+
   // Labels overlay (Google 2D roadmap on 3D tiles)
   useEffect(() => {
-    const tileset = tilesetRef.current;
-    if (!tileset) return;
-
     if (layers.labels) {
-      Cesium.Google2DImageryProvider.fromUrl({
-        mapType: 'roadmap',
-        overlayLayerType: 'layerRoadmap',
-      }).then((provider) => {
-        if (!tilesetRef.current) return;
-        const layer = tilesetRef.current.imageryLayers.addImageryProvider(provider as Cesium.ImageryProvider);
-        layer.alpha = 0.7;
-        labelsLayerRef.current = layer;
-        viewerRef.current?.scene.requestRender();
-      }).catch((e) => {
-        console.error('Failed to load Google labels overlay:', e);
-      });
+      // Wait for tileset to be available (may load slower on mobile)
+      const tryAddLabels = () => {
+        const tileset = tilesetRef.current;
+        if (!tileset) {
+          setTimeout(tryAddLabels, 500);
+          return;
+        }
+        Cesium.Google2DImageryProvider.fromUrl({
+          mapType: 'roadmap',
+          overlayLayerType: 'layerRoadmap',
+        }).then((provider) => {
+          if (!tilesetRef.current) return;
+          const layer = tilesetRef.current.imageryLayers.addImageryProvider(provider as Cesium.ImageryProvider);
+          layer.alpha = 0.7;
+          labelsLayerRef.current = layer;
+          viewerRef.current?.scene.requestRender();
+        }).catch((e) => {
+          console.error('Failed to load Google labels overlay:', e);
+        });
+      };
+      tryAddLabels();
     } else {
       if (labelsLayerRef.current) {
         tilesetRef.current?.imageryLayers.remove(labelsLayerRef.current);
@@ -730,7 +799,7 @@ export function Globe() {
     <div
       ref={containerRef}
       className="w-full h-full absolute inset-0"
-      style={{ background: '#0D1B2A', cursor: measureMode ? 'crosshair' : 'default' }}
+      style={{ background: '#0D1B2A', cursor: measureMode ? 'crosshair' : 'default', touchAction: 'none' }}
     />
   );
 }

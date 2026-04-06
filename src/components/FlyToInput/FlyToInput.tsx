@@ -21,8 +21,18 @@ export function FlyToInput() {
     // Try parsing "lat, lon" or "lat lon"
     const parts = trimmed.split(/[\s,]+/).map(Number);
     if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      const lat = parts[0];
+      const lon = parts[1];
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        useAppStore.getState().addNotification({
+          type: 'warning',
+          title: 'Invalid Coordinates',
+          message: 'Latitude must be -90 to 90, longitude -180 to 180',
+        });
+        return;
+      }
       const alt = parts.length >= 3 && !isNaN(parts[2]) ? parts[2] : 50000;
-      setFlyToTarget({ lat: parts[0], lon: parts[1], alt });
+      setFlyToTarget({ lat, lon, alt });
       setInput('');
       setOpen(false);
       return;
@@ -40,7 +50,7 @@ export function FlyToInput() {
   };
 
   return (
-    <div className="absolute top-4 right-52 z-10">
+    <div className="absolute top-4 right-52 z-10 hidden md:block">
       <button
         onClick={() => setOpen(!open)}
         className="rounded-lg px-3 py-2 border backdrop-blur-sm text-xs font-mono"

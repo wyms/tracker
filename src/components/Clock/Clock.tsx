@@ -15,19 +15,19 @@ export function Clock() {
   return (
     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
       <div
-        className="rounded-lg px-5 py-2 border backdrop-blur-sm text-center"
+        className="rounded-lg px-3 md:px-5 py-1.5 md:py-2 border backdrop-blur-sm text-center"
         style={{
           background: 'rgba(13,27,42,0.9)',
           borderColor: 'rgba(0,229,255,0.2)',
         }}
       >
-        <div className="text-xs font-mono" style={{ color: '#4A5568' }}>
+        <div className="hidden md:block text-xs font-mono" style={{ color: '#4A5568' }}>
           {dateStr}
         </div>
-        <div className="flex items-baseline gap-4">
+        <div className="flex items-baseline gap-2 md:gap-4">
           <div>
             <span
-              className="text-lg font-mono font-bold tracking-wider"
+              className="text-sm md:text-lg font-mono font-bold tracking-wider"
               style={{ color: '#00E5FF' }}
             >
               {utc}
@@ -37,7 +37,7 @@ export function Clock() {
             </span>
           </div>
           <div>
-            <span className="text-sm font-mono text-gray-400">{local}</span>
+            <span className="text-xs md:text-sm font-mono text-gray-400">{local}</span>
             <span className="text-xs font-mono ml-1 text-gray-500">L</span>
           </div>
         </div>

@@ -159,36 +159,113 @@ function splitAntiMeridian(bbox: BoundingBox): BoundingBox[] {
   ];
 }
 
-export async function fetchFlights(
-  bbox?: BoundingBox
-): Promise<AircraftState[]> {
-  // Try adsb.fi first (via Cloud Function proxy for CORS)
-  try {
-    if (bbox) {
-      const centerLat = (bbox.south + bbox.north) / 2;
-      // Handle anti-meridian for center calculation
-      const centerLon = bbox.west <= bbox.east
-        ? (bbox.west + bbox.east) / 2
-        : ((bbox.west + bbox.east + 360) / 2) % 360 - 180;
-      const latSpan = bbox.north - bbox.south;
-      const lonSpan = bbox.west <= bbox.east
-        ? bbox.east - bbox.west
-        : 360 - bbox.west + bbox.east;
-      const dist = Math.max(latSpan, lonSpan) * 30;
-      // adsb.fi supports ~250nm radius; for larger regions fall through to OpenSky bbox
-      if (dist <= 250) {
-        const res = await fetch(`/api/adsb/api/v2/lat/${centerLat.toFixed(2)}/lon/${centerLon.toFixed(2)}/dist/${Math.round(dist)}`);
-        if (res.ok) {
-          const data = await res.json();
-          const aircraft = (data.aircraft || []) as Record<string, unknown>[];
-          return aircraft
-            .filter((ac) => ac.lat != null && ac.lon != null)
-            .map(parseAdsbFiAircraft);
+/**
+ * USE_ADSB_ONLY: when true, flight data comes exclusively from adsb.fi
+ * (free, unlimited, no OpenSky quota consumption).
+ * Set to false to re-enable OpenSky fallback for larger areas.
+ */
+const USE_ADSB_ONLY = true;
+
+/** Max radius supported by adsb.fi lat/lon/dist endpoint */
+const ADSB_MAX_DIST_NM = 250;
+/** Approximate degrees covered by one 250nm-radius circle */
+const ADSB_RADIUS_DEG = 4.2;
+/** Max adsb.fi queries per poll to avoid hammering the API */
+const MAX_TILE_QUERIES = 9;
+
+/** Wrap longitude to [-180, 180] */
+function normLon(lon: number): number {
+  return ((lon % 360) + 540) % 360 - 180;
+}
+
+async function fetchAdsbFiTile(lat: number, lon: number, dist: number): Promise<AircraftState[]> {
+  const res = await fetch(
+    `/api/adsb/api/v2/lat/${lat.toFixed(2)}/lon/${lon.toFixed(2)}/dist/${Math.round(dist)}`,
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return ((data.aircraft || []) as Record<string, unknown>[])
+    .filter((ac) => ac.lat != null && ac.lon != null)
+    .map(parseAdsbFiAircraft);
+}
+
+function deduplicateAircraft(results: PromiseSettledResult<AircraftState[]>[]): AircraftState[] {
+  const seen = new Set<string>();
+  const merged: AircraftState[] = [];
+  for (const r of results) {
+    if (r.status === 'fulfilled') {
+      for (const ac of r.value) {
+        if (!seen.has(ac.icao24)) {
+          seen.add(ac.icao24);
+          merged.push(ac);
         }
       }
     }
+  }
+  return merged;
+}
+
+export async function fetchFlights(
+  bbox?: BoundingBox
+): Promise<AircraftState[]> {
+  // adsb.fi via Cloud Function proxy (free, no auth)
+  try {
+    // World mode: query major aviation hubs
+    if (!bbox) {
+      const hubs = [
+        { lat: 37, lon: -95 },   // US central
+        { lat: 48, lon: 10 },    // Europe
+        { lat: 25, lon: 55 },    // Middle East
+        { lat: 35, lon: 105 },   // East Asia
+        { lat: -30, lon: 135 },  // Australia
+        { lat: 5, lon: 25 },     // Africa
+        { lat: -15, lon: -55 },  // South America
+      ];
+      const results = await Promise.allSettled(
+        hubs.map((h) => fetchAdsbFiTile(h.lat, h.lon, ADSB_MAX_DIST_NM)),
+      );
+      return deduplicateAircraft(results);
+    }
+
+    const latSpan = bbox.north - bbox.south;
+    const lonSpan = bbox.west <= bbox.east
+      ? bbox.east - bbox.west
+      : 360 - bbox.west + bbox.east;
+    const maxSpan = Math.max(latSpan, lonSpan);
+
+    // Small region: single query
+    if (maxSpan <= ADSB_RADIUS_DEG * 2) {
+      const centerLat = (bbox.south + bbox.north) / 2;
+      const centerLon = bbox.west <= bbox.east
+        ? (bbox.west + bbox.east) / 2
+        : normLon(((bbox.west + bbox.east + 360) / 2) % 360);
+      const dist = Math.min(maxSpan * 30, ADSB_MAX_DIST_NM);
+      return await fetchAdsbFiTile(centerLat, centerLon, dist);
+    }
+
+    // Large region: tile with a grid of 250nm queries
+    const cols = Math.min(Math.ceil(lonSpan / (ADSB_RADIUS_DEG * 2)), 3);
+    const rows = Math.min(Math.ceil(latSpan / (ADSB_RADIUS_DEG * 2)), 3);
+    const centers: { lat: number; lon: number }[] = [];
+    for (let r = 0; r < rows && centers.length < MAX_TILE_QUERIES; r++) {
+      for (let c = 0; c < cols && centers.length < MAX_TILE_QUERIES; c++) {
+        centers.push({
+          lat: bbox.south + (r + 0.5) * (latSpan / rows),
+          lon: normLon(bbox.west + (c + 0.5) * (lonSpan / cols)),
+        });
+      }
+    }
+    const results = await Promise.allSettled(
+      centers.map((h) => fetchAdsbFiTile(h.lat, h.lon, ADSB_MAX_DIST_NM)),
+    );
+    return deduplicateAircraft(results);
   } catch {
-    // adsb.fi failed, fall through to OpenSky
+    // adsb.fi failed
+  }
+
+  // OpenSky fallback — disabled when USE_ADSB_ONLY is true
+  if (USE_ADSB_ONLY) {
+    return [];
   }
 
   // Fallback to OpenSky — split anti-meridian boxes into two requests

@@ -8,9 +8,13 @@ export function SanctionsPanel() {
   const [loading, setLoading] = useState(false);
   const [listLoaded, setListLoaded] = useState(false);
   const [allEntries, setAllEntries] = useState<SanctionEntry[]>([]);
+  const [lastSearchTime, setLastSearchTime] = useState(0);
 
   const handleSearch = useCallback(async () => {
     if (query.length < 2) return;
+    const now = Date.now();
+    if (now - lastSearchTime < 2000) return;
+    setLastSearchTime(now);
     setLoading(true);
 
     try {
@@ -27,7 +31,7 @@ export function SanctionsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [query, allEntries, listLoaded]);
+  }, [query, allEntries, listLoaded, lastSearchTime]);
 
   if (!open) {
     return (

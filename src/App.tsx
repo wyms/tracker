@@ -22,6 +22,7 @@ import { FiresPanel } from './components/FiresPanel/FiresPanel';
 import { MarketTicker } from './components/MarketTicker/MarketTicker';
 import { SanctionsPanel } from './components/SanctionsPanel/SanctionsPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useInactivityLogout } from './hooks/useInactivityLogout';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
@@ -69,8 +70,14 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
   }
 }
 
+function AuthGated({ children }: { children: ReactNode }) {
+  const user = useAppStore((s) => s.user);
+  return user ? <>{children}</> : null;
+}
+
 function App() {
   useKeyboardShortcuts();
+  useInactivityLogout();
 
   const setUser = useAppStore((s) => s.setUser);
   const setApiUsage = useAppStore((s) => s.setApiUsage);
@@ -87,6 +94,7 @@ function App() {
         });
         // Auto-enable core layers on sign-in
         const { layers, toggleLayer } = useAppStore.getState();
+        if (!layers.earthquakes) toggleLayer('earthquakes');
         if (!layers.flights) toggleLayer('flights');
         if (!layers.satellites) toggleLayer('satellites');
         if (!layers.cameras) toggleLayer('cameras');
@@ -105,7 +113,12 @@ function App() {
       } else {
         setUser(null);
         setApiUsage(null);
-        // Flights stay on but downgrade to anonymous tier (50 cap, 30s poll)
+        // Disable all layers on sign-out to avoid anon API costs
+        const { layers, toggleLayer } = useAppStore.getState();
+        const costLayers = ['flights', 'satellites', 'earthquakes', 'cameras', 'groundStops', 'fires', 'gdelt', 'radiation', 'eonet', 'weather'] as const;
+        for (const layer of costLayers) {
+          if (layers[layer]) toggleLayer(layer);
+        }
       }
     });
   }, [setUser, setApiUsage]);
@@ -125,7 +138,7 @@ function App() {
     }
 
     fetchUsage();
-    const interval = setInterval(fetchUsage, 60_000);
+    const interval = setInterval(fetchUsage, 300_000);
     return () => clearInterval(interval);
   }, [setApiUsage]);
 
@@ -147,8 +160,8 @@ function App() {
         <Toolbar />
         <MeasureTool />
         <NotificationToast />
-        <TrackedFlightsPanel />
-        <MarketTicker />
+        <AuthGated><TrackedFlightsPanel /></AuthGated>
+        <AuthGated><MarketTicker /></AuthGated>
         <SanctionsPanel />
         <StatusBar />
       </div>

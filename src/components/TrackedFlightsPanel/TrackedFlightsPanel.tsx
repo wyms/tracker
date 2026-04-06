@@ -60,7 +60,7 @@ export function TrackedFlightsPanel() {
   }
 
   return (
-    <div className="absolute bottom-16 left-4 z-10 w-72 hidden md:block">
+    <div className="absolute bottom-52 left-4 z-10 w-72 hidden md:block">
       <div
         className="rounded-lg border backdrop-blur-sm overflow-hidden"
         style={{

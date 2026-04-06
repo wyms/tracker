@@ -48,9 +48,8 @@ export class EarthquakeLayer {
 
   async start() {
     await this.poll();
-    // 60s for auth, 5 min for anon (earthquake data changes slowly)
-    const interval = this.authenticated ? 60_000 : 300_000;
-    this.intervalId = window.setInterval(() => this.poll(), interval);
+    // 5 min for all users (USGS data updates every ~5 min; polling faster just hits cache)
+    this.intervalId = window.setInterval(() => this.poll(), 300_000);
     this.startPulse();
   }
 
@@ -106,7 +105,14 @@ export class EarthquakeLayer {
       const entity = this.viewer.entities.add({
         id,
         name: quake.properties.title,
-        position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+        position: Cesium.Cartesian3.fromDegrees(lon, lat, 500),
+        point: {
+          pixelSize: Math.max(6, mag * 3),
+          color: color.withAlpha(0.9),
+          outlineColor: color,
+          outlineWidth: 2,
+          disableDepthTestDistance: 5e6,
+        },
         ellipse: {
           semiMajorAxis: radius,
           semiMinorAxis: radius,
@@ -114,7 +120,7 @@ export class EarthquakeLayer {
           outline: true,
           outlineColor: color.withAlpha(0.8),
           outlineWidth: 2,
-          height: 0,
+          height: 500,
         },
       });
 
@@ -145,16 +151,15 @@ export class EarthquakeLayer {
   private startPulse() {
     let phase = 0;
     const tick = () => {
-      phase += 0.05;
-      const scale = 0.8 + 0.2 * Math.sin(phase);
+      phase += 0.15;
+      const scale = 0.85 + 0.15 * Math.sin(phase);
 
       for (const [, entity] of this.entities) {
-        if (entity.ellipse) {
+        if (entity.point) {
           const baseData = (entity as any)._quakeData;
           if (baseData) {
-            const baseRadius = magnitudeToRadius(baseData.mag);
-            entity.ellipse.semiMajorAxis = new Cesium.ConstantProperty(baseRadius * scale);
-            entity.ellipse.semiMinorAxis = new Cesium.ConstantProperty(baseRadius * scale);
+            const baseSize = Math.max(6, baseData.mag * 3);
+            entity.point.pixelSize = new Cesium.ConstantProperty(baseSize * scale);
           }
         }
       }
@@ -162,7 +167,7 @@ export class EarthquakeLayer {
     };
 
     this.pulseCallback = tick;
-    const pulseInterval = setInterval(tick, 50);
+    const pulseInterval = setInterval(tick, 500);
     (this as any)._pulseInterval = pulseInterval;
   }
 

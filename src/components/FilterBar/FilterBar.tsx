@@ -11,7 +11,7 @@ export function FilterBar() {
   const { activeFilter, setActiveFilter } = useAppStore();
 
   return (
-    <div className="absolute top-4 left-4 z-10">
+    <div className="absolute top-4 left-4 z-10 hidden md:block">
       <div
         className="rounded-lg border backdrop-blur-sm"
         style={{

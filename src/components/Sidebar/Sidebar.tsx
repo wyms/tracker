@@ -16,6 +16,7 @@ const layerConfig: { key: keyof LayerState; label: string; color: string; shortc
   { key: 'gdelt', label: 'GDELT Events', color: '#E040FB', shortcut: '9' },
   { key: 'radiation', label: 'Radiation', color: '#76FF03', shortcut: '0' },
   { key: 'eonet', label: 'Natural Events', color: '#FF4500', shortcut: '' },
+  { key: 'artemis', label: 'Artemis II', color: '#FF8C00', shortcut: '' },
 ];
 
 function useIsMobile() {
@@ -144,10 +145,11 @@ export function Sidebar() {
         style={isMobile ? { top: '0.5rem' } : undefined}
       >
         <div
-          className="rounded-lg p-4 border backdrop-blur-sm"
+          className="rounded-lg p-4 border backdrop-blur-sm overflow-y-auto"
           style={{
             background: 'rgba(13,27,42,0.95)',
             borderColor: 'rgba(0,229,255,0.2)',
+            maxHeight: 'calc(100dvh - 6rem)',
           }}
         >
           <div className="flex items-center justify-between mb-4">
@@ -166,7 +168,7 @@ export function Sidebar() {
               </button>
             )}
           </div>
-          <div className="space-y-3">
+          <div className="space-y-1.5">
             {layerConfig.map(({ key, label, color, shortcut }) => {
               const count = key in entityCounts ? entityCounts[key as keyof typeof entityCounts] : undefined;
               return (

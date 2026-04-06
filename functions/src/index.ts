@@ -190,9 +190,13 @@ app.post("/api/auth/signin", express.json(), async (req: AuthenticatedRequest, r
 // --- Users list endpoint (admin) ---
 
 app.get("/api/users", async (req: AuthenticatedRequest, res) => {
-  // Only allow authenticated users (you can restrict to specific UIDs later)
   if (!req._fbUser) {
     res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+  // Restrict to admin only
+  if (req._fbUser.email !== ADMIN_EMAIL) {
+    res.status(403).json({ error: 'Forbidden' });
     return;
   }
 
@@ -281,7 +285,7 @@ async function getOpenSkyToken(): Promise<string | null> {
 // --- Daily API call counter (hybrid: in-memory + Firestore sync) ---
 
 const DAILY_LIMIT = 4_000;
-const SYNC_INTERVAL = 60_000;
+const SYNC_INTERVAL = 300_000; // 5 min — reduces Firestore writes during active use
 
 let apiCallCounter = { date: '', count: 0 };
 let lastFirestoreSync = 0;
@@ -554,7 +558,7 @@ app.get("/api/opensky/*", async (req, res) => {
 });
 
 // CelesTrak (no auth, cached)
-app.all("/api/celestrak/*", async (req, res) => {
+app.get("/api/celestrak/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/celestrak/, "");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://celestrak.org${path}${qs}`;
@@ -566,7 +570,7 @@ app.all("/api/celestrak/*", async (req, res) => {
 });
 
 // USGS Earthquake (no auth, cached)
-app.all("/api/usgs/*", async (req, res) => {
+app.get("/api/usgs/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/usgs/, "");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://earthquake.usgs.gov${path}${qs}`;
@@ -578,7 +582,7 @@ app.all("/api/usgs/*", async (req, res) => {
 });
 
 // Austin Open Data (no auth, cached)
-app.all("/api/austin/*", async (req, res) => {
+app.get("/api/austin/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/austin/, "");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://data.austintexas.gov${path}${qs}`;
@@ -590,7 +594,7 @@ app.all("/api/austin/*", async (req, res) => {
 });
 
 // ADS-B Exchange open data (adsb.fi — no auth, cached 10s)
-app.all("/api/adsb/*", async (req, res) => {
+app.get("/api/adsb/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/adsb/, "");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://opendata.adsb.fi${path}${qs}`;
@@ -602,7 +606,7 @@ app.all("/api/adsb/*", async (req, res) => {
 });
 
 // NASA FIRMS fire data (no auth, cached 10 min — data updates ~3 hours)
-app.all("/api/firms/*", async (req, res) => {
+app.get("/api/firms/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/firms/, "");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://firms.modaps.eosdis.nasa.gov${path}${qs}`;
@@ -614,7 +618,7 @@ app.all("/api/firms/*", async (req, res) => {
 });
 
 // FAA NASSTATUS (no auth, cached 2 min — data updates slowly)
-app.all("/api/faa/*", async (req, res) => {
+app.get("/api/faa/*", async (req, res) => {
   const path = req.path.replace(/^\/api\/faa/, "");
   const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   const targetUrl = `https://nasstatus.faa.gov${path}${qs}`;
@@ -628,23 +632,33 @@ app.all("/api/faa/*", async (req, res) => {
 // --- Tracked flights API endpoint ---
 
 const DEFAULT_TRACKED_CALLSIGNS = ["N307EL", "N308EL", "N309EL"];
+// ICAO24 hex codes matching the default callsigns — used to query only these aircraft
+// instead of downloading the full global state vector.
+const DEFAULT_TRACKED_ICAO24S = ["a339c2", "a33d79", "a34130"];
 
-async function getTrackedCallsigns(): Promise<string[]> {
+async function getTrackedAircraft(): Promise<{ callsigns: string[]; icao24s: string[] }> {
   try {
     const doc = await db.doc("config/tracked-aircraft").get();
     if (doc.exists) {
       const data = doc.data();
       if (Array.isArray(data?.callsigns) && data.callsigns.length > 0) {
-        return data.callsigns;
+        return {
+          callsigns: data.callsigns,
+          icao24s: Array.isArray(data?.icao24s) ? data.icao24s : DEFAULT_TRACKED_ICAO24S,
+        };
       }
     }
   } catch (err) {
-    console.error("Failed to load tracked callsigns from Firestore:", err);
+    console.error("Failed to load tracked aircraft from Firestore:", err);
   }
-  return DEFAULT_TRACKED_CALLSIGNS;
+  return { callsigns: DEFAULT_TRACKED_CALLSIGNS, icao24s: DEFAULT_TRACKED_ICAO24S };
 }
 
-app.get("/api/tracked-flights", async (_req, res) => {
+app.get("/api/tracked-flights", async (req: AuthenticatedRequest, res) => {
+  if (!req._fbUser) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
   try {
     const snapshot = await db
       .collection("tracked-flights")
@@ -678,25 +692,27 @@ export const api = onRequest(
 
 export const trackFlights = onSchedule(
   {
-    schedule: "every 30 minutes",
+    schedule: "every 2 hours",
     region: "us-central1",
     memory: "256MiB",
     timeoutSeconds: 120,
     secrets: [OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET],
   },
   async () => {
-    const TRACKED_CALLSIGNS = await getTrackedCallsigns();
+    const { callsigns: TRACKED_CALLSIGNS, icao24s: TRACKED_ICAO24S } = await getTrackedAircraft();
     console.log("trackFlights: polling OpenSky for", TRACKED_CALLSIGNS.join(", "));
 
-    // /states/all works without auth — skip token to avoid timeout on auth server.
-    // Use native fetch (no custom undici agent) for better GCP compatibility.
+    // Query only the specific ICAO24s instead of the full global state vector (~10MB).
+    // This reduces each run from ~10MB download to a few hundred bytes.
+    const icao24Params = TRACKED_ICAO24S.map((id) => `icao24=${id}`).join("&");
     let states: any[][] = [];
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 60_000);
-      const res = await globalThis.fetch("https://opensky-network.org/api/states/all", {
-        signal: controller.signal,
-      });
+      const timeout = setTimeout(() => controller.abort(), 30_000);
+      const res = await globalThis.fetch(
+        `https://opensky-network.org/api/states/all?${icao24Params}`,
+        { signal: controller.signal },
+      );
       clearTimeout(timeout);
       if (res.ok) {
         const data = await res.json() as { states: any[][] | null };

@@ -47,7 +47,7 @@ export class EonetLayer {
 
   async start() {
     await this.poll();
-    const interval = this.authenticated ? 600_000 : 1_800_000; // 10 min auth, 30 min anon
+    const interval = this.authenticated ? 1_800_000 : 1_800_000; // 30 min for all users
     this.intervalId = window.setInterval(() => this.poll(), interval);
   }
 
@@ -86,7 +86,7 @@ export class EonetLayer {
           color: style.color,
           outlineColor: Cesium.Color.WHITE.withAlpha(0.5),
           outlineWidth: 1,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          disableDepthTestDistance: 5e6,
         },
       });
 

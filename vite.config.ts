@@ -1,7 +1,8 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
-import cesium from 'vite-plugin-cesium'
 import tailwindcss from '@tailwindcss/vite'
+
+const CESIUM_CDN = 'https://cesium.com/downloads/cesiumjs/releases/1.138/Build/Cesium'
 
 /**
  * Vite plugin that proxies /api/opensky requests with OAuth2 Bearer tokens.
@@ -52,13 +53,13 @@ function openSkyAuthProxy(): Plugin {
   return {
     name: 'opensky-auth-proxy',
     configureServer(server) {
-      const env = loadEnv('development', process.cwd(), 'VITE_')
-      clientId = env.VITE_OPENSKY_CLIENT_ID ?? ''
-      clientSecret = env.VITE_OPENSKY_CLIENT_SECRET ?? ''
+      const env = loadEnv('development', process.cwd(), '')
+      clientId = env.OPENSKY_CLIENT_ID ?? ''
+      clientSecret = env.OPENSKY_CLIENT_SECRET ?? ''
 
       if (!clientId || !clientSecret) {
         console.warn(
-          '[opensky-auth-proxy] VITE_OPENSKY_CLIENT_ID / VITE_OPENSKY_CLIENT_SECRET not set — requests will be unauthenticated',
+          '[opensky-auth-proxy] OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET not set — requests will be unauthenticated',
         )
       }
 
@@ -95,7 +96,13 @@ function openSkyAuthProxy(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), cesium(), tailwindcss(), openSkyAuthProxy()],
+  plugins: [react(), tailwindcss(), openSkyAuthProxy()],
+  define: {
+    CESIUM_BASE_URL: JSON.stringify(CESIUM_CDN),
+  },
+  optimizeDeps: {
+    include: ['cesium'],
+  },
   server: {
     host: true,
     proxy: {
@@ -128,6 +135,11 @@ export default defineConfig({
         target: 'https://firms.modaps.eosdis.nasa.gov',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/firms/, ''),
+      },
+      '/api/adsb': {
+        target: 'https://opendata.adsb.fi',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/adsb/, ''),
       },
     },
   },

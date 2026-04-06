@@ -80,9 +80,10 @@ export class FireLayer {
 
     for (const h of capped) {
       const point = this.pointCollection.add({
-        position: Cesium.Cartesian3.fromDegrees(h.longitude, h.latitude, 0),
+        position: Cesium.Cartesian3.fromDegrees(h.longitude, h.latitude, 500),
         pixelSize: frpToSize(h.frp),
         color: frpToColor(h.frp),
+        disableDepthTestDistance: 5e6,
       });
       (point as any)._fireData = h;
     }

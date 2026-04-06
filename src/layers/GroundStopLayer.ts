@@ -2,7 +2,7 @@ import * as Cesium from 'cesium';
 import type { FAAProgram } from '../services/faa';
 import { fetchFAAStatus } from '../services/faa';
 
-const POLL_INTERVAL = 120_000; // 2 minutes
+const POLL_INTERVAL = 300_000; // 5 minutes
 
 const TYPE_ICONS: Record<FAAProgram['type'], { icon: string; color: string; scale: number }> = {
   ground_stop: { icon: '/icons/ground-stop.svg', color: '#FF1744', scale: 0.6 },
@@ -32,7 +32,7 @@ export class GroundStopLayer {
 
   async start() {
     await this.poll();
-    // 2 min for auth, 5 min for anon
+    // 5 min for all users
     const interval = this.authenticated ? POLL_INTERVAL : 300_000;
     this.intervalId = window.setInterval(() => this.poll(), interval);
   }

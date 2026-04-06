@@ -44,7 +44,7 @@ export class RadiationLayer {
       );
     }
     await this.poll();
-    const interval = this.authenticated ? 600_000 : 1_800_000; // 10 min auth, 30 min anon
+    const interval = this.authenticated ? 1_800_000 : 1_800_000; // 30 min for all users
     this.intervalId = window.setInterval(() => this.poll(), interval);
   }
 

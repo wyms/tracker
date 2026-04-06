@@ -5,6 +5,7 @@ export class WeatherLayer {
   private tileset: Cesium.Cesium3DTileset | null = null;
   private imageryLayer: Cesium.ImageryLayer | null = null;
   private refreshIntervalId: number | null = null;
+  private pendingStart = false;
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer;
@@ -12,11 +13,18 @@ export class WeatherLayer {
 
   setTileset(tileset: Cesium.Cesium3DTileset) {
     this.tileset = tileset;
+    if (this.pendingStart) {
+      this.pendingStart = false;
+      this.start();
+    }
   }
 
   start() {
     if (this.imageryLayer) return;
-    if (!this.tileset) return;
+    if (!this.tileset) {
+      this.pendingStart = true;
+      return;
+    }
 
     // Iowa Environmental Mesonet NEXRAD composite reflectivity (WMS, free, no auth)
     const provider = new Cesium.WebMapServiceImageryProvider({
@@ -42,6 +50,7 @@ export class WeatherLayer {
   }
 
   stop() {
+    this.pendingStart = false;
     if (this.refreshIntervalId !== null) {
       clearInterval(this.refreshIntervalId);
       this.refreshIntervalId = null;

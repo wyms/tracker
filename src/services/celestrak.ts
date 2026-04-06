@@ -43,6 +43,20 @@ export async function fetchStations(): Promise<SatelliteGP[]> {
   }
 }
 
+export async function fetchSatelliteByName(name: string): Promise<SatelliteGP[]> {
+  try {
+    const url = `/api/celestrak/NORAD/elements/gp.php?NAME=${encodeURIComponent(name)}&FORMAT=json`;
+    const response = await fetch(url);
+    if (!response.ok) return [];
+    const data = await response.json();
+    // CelesTrak returns a single object (not array) when there's exactly one result
+    return Array.isArray(data) ? data : [data];
+  } catch (error) {
+    console.error(`Failed to fetch satellite "${name}" from CelesTrak:`, error);
+    return [];
+  }
+}
+
 export async function fetchActiveSatellites(): Promise<SatelliteGP[]> {
   try {
     const url =
