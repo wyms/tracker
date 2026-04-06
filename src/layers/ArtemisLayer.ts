@@ -302,10 +302,25 @@ export class ArtemisLayer {
     this.viewer.scene.requestRender();
   }
 
-  /** Fly camera out to show the full Earth-Moon trajectory */
+  /** Fly camera to center on Orion's current position */
   flyTo() {
+    const hour = this.getMissionHour();
+    const pos = this.interpolatePosition(hour);
+    if (!pos) return;
+
+    // Offset the camera so it's looking at the craft from a distance
+    const dist = Cesium.Cartesian3.magnitude(pos);
+    const direction = Cesium.Cartesian3.normalize(pos, new Cesium.Cartesian3());
+    // Pull camera back along the same direction, plus raise it a bit
+    const offset = Cesium.Cartesian3.multiplyByScalar(direction, dist * 0.3, new Cesium.Cartesian3());
+    const camPos = Cesium.Cartesian3.add(pos, offset, new Cesium.Cartesian3());
+
     this.viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(0, 20, 500_000_000),
+      destination: camPos,
+      orientation: {
+        direction: Cesium.Cartesian3.negate(direction, new Cesium.Cartesian3()),
+        up: new Cesium.Cartesian3(0, 0, 1),
+      },
       duration: 2,
     });
   }
