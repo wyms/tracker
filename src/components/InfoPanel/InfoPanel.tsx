@@ -2,6 +2,15 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { fetchHistoricalFlights } from '../../services/opensky';
 
+function isSafeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 export function InfoPanel() {
   const { selectedEntity, setSelectedEntity } = useAppStore();
 
@@ -27,6 +36,8 @@ export function InfoPanel() {
         return <EonetEventInfo data={selectedEntity.data} />;
       case 'radiation':
         return <RadiationInfo data={selectedEntity.data} />;
+      case 'artemis':
+        return <ArtemisInfo data={selectedEntity.data} />;
       default:
         return null;
     }
@@ -42,6 +53,7 @@ export function InfoPanel() {
     gdeltEvent: 'GDELT EVENT',
     eonetEvent: 'NATURAL EVENT',
     radiation: 'RADIATION',
+    artemis: 'ARTEMIS II',
   }[selectedEntity.type];
 
   const typeColor = {
@@ -54,6 +66,7 @@ export function InfoPanel() {
     gdeltEvent: '#E040FB',
     eonetEvent: '#FF4500',
     radiation: '#76FF03',
+    artemis: '#FF8C00',
   }[selectedEntity.type];
 
   return (
@@ -98,6 +111,8 @@ function InfoRow({ label, value }: { label: string; value: string | number | und
   );
 }
 
+const routeCache = new Map<string, { departure: string | null; arrival: string | null }>();
+
 function AircraftInfo({ data }: { data: Record<string, unknown> }) {
   const [route, setRoute] = useState<{ departure: string | null; arrival: string | null } | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
@@ -105,7 +120,16 @@ function AircraftInfo({ data }: { data: Record<string, unknown> }) {
 
   useEffect(() => {
     if (!icao24) return;
-    let cancelled = false;
+
+    // Return cached result if available
+    const cached = routeCache.get(icao24);
+    if (cached) {
+      setRoute(cached);
+      setRouteLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
     setRoute(null);
     setRouteLoading(true);
 
@@ -114,25 +138,21 @@ function AircraftInfo({ data }: { data: Record<string, unknown> }) {
 
     fetchHistoricalFlights(icao24, twoDaysAgo, now)
       .then((flights) => {
-        if (cancelled) return;
-        if (flights.length > 0) {
-          const latest = flights[flights.length - 1];
-          setRoute({
-            departure: latest.estDepartureAirport,
-            arrival: latest.estArrivalAirport,
-          });
-        } else {
-          setRoute({ departure: null, arrival: null });
-        }
+        if (controller.signal.aborted) return;
+        const result = flights.length > 0
+          ? { departure: flights[flights.length - 1].estDepartureAirport, arrival: flights[flights.length - 1].estArrivalAirport }
+          : { departure: null, arrival: null };
+        routeCache.set(icao24, result);
+        setRoute(result);
       })
       .catch(() => {
-        if (!cancelled) setRoute({ departure: null, arrival: null });
+        if (!controller.signal.aborted) setRoute({ departure: null, arrival: null });
       })
       .finally(() => {
-        if (!cancelled) setRouteLoading(false);
+        if (!controller.signal.aborted) setRouteLoading(false);
       });
 
-    return () => { cancelled = true; };
+    return () => { controller.abort(); };
   }, [icao24]);
 
   return (
@@ -213,7 +233,7 @@ function EarthquakeInfo({ data }: { data: Record<string, unknown> }) {
         value={data.depth != null ? `${Number(data.depth).toFixed(1)} km` : 'N/A'}
       />
       <InfoRow label="Time" value={time} />
-      {typeof data.url === 'string' && data.url && (
+      {typeof data.url === 'string' && data.url && isSafeUrl(data.url) && (
         <a
           href={data.url as string}
           target="_blank"
@@ -301,7 +321,7 @@ function GdeltEventInfo({ data }: { data: Record<string, unknown> }) {
       <InfoRow label="Tone" value={`${tone.toFixed(1)} (${toneLabel})`} />
       <InfoRow label="Lat" value={Number(data.latitude).toFixed(4)} />
       <InfoRow label="Lon" value={Number(data.longitude).toFixed(4)} />
-      {typeof data.url === 'string' && data.url && (
+      {typeof data.url === 'string' && data.url && isSafeUrl(data.url) && (
         <a
           href={data.url}
           target="_blank"
@@ -355,7 +375,7 @@ function EonetEventInfo({ data }: { data: Record<string, unknown> }) {
       <InfoRow label="Lon" value={Number(data.longitude).toFixed(4)} />
       <InfoRow label="Date" value={data.date ? new Date(data.date as string).toLocaleString() : 'N/A'} />
       <InfoRow label="Source" value={data.source as string} />
-      {typeof data.sourceUrl === 'string' && data.sourceUrl && (
+      {typeof data.sourceUrl === 'string' && data.sourceUrl && isSafeUrl(data.sourceUrl) && (
         <a
           href={data.sourceUrl}
           target="_blank"
@@ -370,6 +390,21 @@ function EonetEventInfo({ data }: { data: Record<string, unknown> }) {
           View Source &rarr;
         </a>
       )}
+    </div>
+  );
+}
+
+function ArtemisInfo({ data }: { data: Record<string, unknown> }) {
+  return (
+    <div className="space-y-0.5">
+      <div className="text-sm font-bold text-white mb-2">
+        {String(data.name || 'Orion — Artemis II')}
+      </div>
+      <InfoRow label="Mission" value={data.mission as string} />
+      <InfoRow label="Vehicle" value={data.vehicle as string} />
+      <InfoRow label="Phase" value={data.phase as string} />
+      <InfoRow label="Distance" value={data.distanceKm != null ? `${Number(data.distanceKm).toLocaleString()} km (${Number(Number(data.distanceKm) * 0.621371).toLocaleString()} mi) from Earth` : 'N/A'} />
+      <InfoRow label="Mission Time" value={data.missionTime as string} />
     </div>
   );
 }
