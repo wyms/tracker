@@ -5,6 +5,7 @@ import {
   resolveCallsignToIcao24,
   fetchHistoricalFlightsFullRange,
   fetchFlightTrack,
+  KNOWN_TAILS,
 } from '../../services/opensky';
 import type { AircraftState, HistoricalFlight } from '../../services/opensky';
 
@@ -73,7 +74,30 @@ export function SearchPanel() {
         return;
       }
 
-      // 2. Not airborne — resolve callsign from flight records
+      // 2a. Known tail (e.g. LLY fleet): skip resolution and pull last 5 days
+      // directly via /flights/aircraft, which has much less lag than /flights/all.
+      const knownIcao24 = KNOWN_TAILS[q.toUpperCase()];
+      if (knownIcao24) {
+        setResolvedIcao24(knownIcao24);
+        setSearchStatus('loading_history');
+        const now = Math.floor(Date.now() / 1000);
+        const fiveDaysAgo = now - 5 * 86400;
+        const flights = await fetchHistoricalFlightsFullRange(
+          knownIcao24,
+          fiveDaysAgo,
+          now
+        );
+        setHistoricalFlights(flights);
+        setSearchStatus('idle');
+        if (flights.length === 0) {
+          setSearchError(
+            `No flights for ${q.toUpperCase()} (${knownIcao24}) in the last 5 days.`
+          );
+        }
+        return;
+      }
+
+      // 2b. Not airborne — resolve callsign from flight records
       setSearchStatus('resolving');
       const resolved = await resolveCallsignToIcao24(q, begin, end);
 

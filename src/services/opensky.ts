@@ -312,6 +312,17 @@ export async function fetchFlights(
   return data.states ? data.states.map(parseStateVector) : [];
 }
 
+/**
+ * Known tails with hardcoded ICAO24s. For these, the search flow can skip
+ * `resolveCallsignToIcao24` (which has a ~1 day data lag from /flights/all)
+ * and call /flights/aircraft directly, picking up flights from the last few hours.
+ */
+export const KNOWN_TAILS: Record<string, string> = {
+  N307EL: 'a339c2',
+  N308EL: 'a33d79',
+  N309EL: 'a34130',
+};
+
 export async function searchLiveByCallsign(
   callsign: string
 ): Promise<AircraftState[]> {
